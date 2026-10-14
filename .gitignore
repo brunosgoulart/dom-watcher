@@ -1,0 +1,4 @@
+.venv/
+.venv-afsdk/
+*.log
+config.pi-test.toml

@@ -1,3 +1,4 @@
-# Version: 1.0 | Date: 13/10/2026
-# Changes: Declared optional Windows COM runtime dependency for the read-only PI service.
+# Version: 1.1 | Date: 14/10/2026
+# Changes: Added the Python .NET bridge required for the AF SDK adapter and kept the COM runtime as an optional dependency.
 pywin32>=306; sys_platform == "win32"
+pythonnet>=3.2.1; sys_platform == "win32"

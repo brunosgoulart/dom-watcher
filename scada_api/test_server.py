@@ -1,5 +1,5 @@
-"""Version: 1.1 | Date: 13/10/2026
-Changes: Added regression coverage for boolean snapshots and malformed tag mappings.
+"""Version: 1.2 | Date: 14/10/2026
+Changes: Added AF SDK adapter regressions for UTC timestamps, bad/questionable values, digital/boolean rejection, reconnect safety and write restrictions.
 """
 import json
 import threading
@@ -110,6 +110,79 @@ class SnapshotTests(unittest.TestCase):
             http.shutdown()
             http.server_close()
             thread.join()
+
+    def test_af_sdk_rejects_writes_at_initialization(self):
+        config = load_config(Path(__file__).with_name("config.example.toml"))
+        config["piAdapter"] = "af-sdk"
+        config["enableWrites"] = True
+        with patch("server.tomllib.load", return_value=config):
+            with self.assertRaisesRegex(ValueError, "AF SDK.*read-only|enableWrites.*af-sdk|write.*disabled"):
+                load_config(Path(__file__).with_name("config.example.toml"))
+
+    def test_af_sdk_timestamp_utc_ms_and_quality(self):
+        class FakeDateTime:
+            def __init__(self, value):
+                self.UtcTime = value
+
+            def ToUniversalTime(self):
+                return self.UtcTime
+
+        client = PIReadClient("PIDATAPRO", adapter="af-sdk", af_sdk_dll="C:/temp/afsdk.dll")
+        client.server = SimpleNamespace(Connected=True)
+        client.points["TEST.TAG"] = SimpleNamespace(
+            Snapshot=Mock(return_value=SimpleNamespace(
+                Value=42.5,
+                Status="Good",
+                IsGood=True,
+                Timestamp=FakeDateTime(__import__("datetime").datetime(1970, 1, 1, tzinfo=__import__("datetime").timezone.utc)),
+            ))
+        )
+        sample = client._read_af_snapshot("TEST.TAG")
+        self.assertTrue(sample["good"])
+        self.assertEqual(sample["value"], 42.5)
+        self.assertEqual(sample["timestamp"], 0)
+
+        client.points["BAD.TAG"] = SimpleNamespace(
+            Snapshot=Mock(return_value=SimpleNamespace(
+                Value=1.0,
+                Status="Questionable",
+                IsGood=False,
+                Timestamp=FakeDateTime(__import__("datetime").datetime(2026, 10, 14, 12, 0, tzinfo=__import__("datetime").timezone.utc)),
+            ))
+        )
+        bad = client._read_af_snapshot("BAD.TAG")
+        self.assertFalse(bad["good"])
+        self.assertIsNone(bad["value"])
+
+    def test_af_sdk_digital_and_boolean_values_are_rejected(self):
+        client = PIReadClient("PIDATAPRO", adapter="af-sdk", af_sdk_dll="C:/temp/afsdk.dll")
+        client.server = SimpleNamespace(Connected=True)
+        client.points["D1"] = SimpleNamespace(Snapshot=Mock(return_value=SimpleNamespace(Value=True, Status="Good", IsGood=True, Timestamp=__import__("datetime").datetime(2026, 10, 14, tzinfo=__import__("datetime").timezone.utc))))
+        client.points["D2"] = SimpleNamespace(Snapshot=Mock(return_value=SimpleNamespace(Value=1, Status="DigitalState", IsGood=True, Timestamp=__import__("datetime").datetime(2026, 10, 14, tzinfo=__import__("datetime").timezone.utc))))
+        self.assertFalse(client._read_af_snapshot("D1")["good"])
+        self.assertFalse(client._read_af_snapshot("D2")["good"])
+
+    def test_af_sdk_reads_even_when_connected_flag_is_false(self):
+        client = PIReadClient("PIDATAPRO", adapter="af-sdk", af_sdk_dll="C:/temp/afsdk.dll")
+        client.server = SimpleNamespace(Connected=False)
+        client.points["CSEO.COGCGPRO56.E3Run.CPU"] = SimpleNamespace(
+            Snapshot=Mock(return_value=SimpleNamespace(
+                Value=0.81,
+                Status="Good",
+                IsGood=True,
+                Timestamp=__import__("datetime").datetime(2026, 10, 14, 17, 15, 47, tzinfo=__import__("datetime").timezone.utc),
+            ))
+        )
+        sample = client._read_af_snapshot("CSEO.COGCGPRO56.E3Run.CPU")
+        self.assertTrue(sample["good"])
+        self.assertEqual(sample["value"], 0.81)
+
+    def test_af_sdk_write_restrictions(self):
+        client = PIReadClient("PIDATAPRO", adapter="af-sdk", af_sdk_dll="C:/temp/afsdk.dll")
+        client.server = SimpleNamespace(Connected=False)
+        with self.assertRaisesRegex(RuntimeError, "AF SDK.*read-only|AF SDK.*disabled|enableWrites"):
+            client.write_alarm("CSEO.TAG.State", 10)
+        self.assertFalse(client.server.Connected)
 
 
 if __name__ == "__main__":

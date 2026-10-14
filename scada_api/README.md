@@ -1,6 +1,6 @@
 # README
 
-Atualizado em: 13/10/2026.
+Atualizado em: 14/10/2026.
 
 ## Regra obrigatória de manutenção para IAs e desenvolvedores
 
@@ -20,13 +20,13 @@ A solução monitora até sete servidores SCADA, lê medições do PI Data Archi
 
 A chegada das medições ao PI via SCADA já está implementada externamente e não é uma pendência desta solução. A coleta anterior à chegada ao PI está fora deste documento.
 
-A implementação está disponível para integração e comissionamento, mas ainda não foi validada com o PI real. Na configuração de exemplo, `piServer` está vazio, os mapeamentos de entrada estão vazios e `enableWrites=false`. Portanto, essa configuração não conecta ao PI nem publica alarmes.
+A implementação está disponível para integração e comissionamento e foi validada no ambiente Windows atual usando o adaptador AF SDK do PI. Na configuração de exemplo, `piServer` está vazio, os mapeamentos de entrada estão vazios e `enableWrites=false`. Portanto, essa configuração não conecta ao PI nem publica alarmes.
 
 ## Componentes
 
 - `../web/`: front-end estático em HTML, CSS e JavaScript, sem login.
 - `server.py`: configuração, aquisição em segundo plano, cache e API HTTP.
-- `pi_client.py`: conexão PI SDK COM, leitura de snapshots e escrita restrita dos estados.
+- `pi_client.py`: conexão PI SDK COM compatível e rota AF SDK via pythonnet/netfx, leitura de snapshots e escrita restrita dos estados.
 - `trends.py`: cálculo das tendências e estados por métrica e servidor.
 - `trend_output.py`: publicação dos estados, heartbeat e retentativas.
 - `config.example.toml`: exemplo de configuração com sete posições e nomes ilustrativos.
@@ -38,9 +38,9 @@ Este serviço é independente da aplicação analítica em `../app/`. Não utili
 
 ### 1. Conexão e leitura
 
-O serviço utiliza Python, `pywin32` e o PI SDK COM, seguindo o padrão de conexão de referência do `must-processor`: `PISDK.PISDK`, seleção do servidor e `Server.Open()` sem credenciais explícitas. A autenticação usa a identidade Windows do processo.
+O serviço aceita o adaptador `pi-sdk-com` e o adaptador `af-sdk`. No ambiente validado neste computador, a rota em produção para leitura foi `AF SDK` via `pythonnet` carregando o runtime `.NET Framework 4.x` e referenciando `OSIsoft.AFSDK.dll`, seguida de `PIServer.FindPIServer(...)` e `Connect()`. O caminho COM do PI SDK continua preservado como compatibilidade e como fallback explícito, mas não é o caminho de validação corrente no host.
 
-A conexão é direta ao PI Data Archive e a PIPoints; não utiliza PI Web API nem navegação em elementos do AF/PI System Explorer. Os nomes das tags precisam ser mapeados explicitamente, sem descoberta automática.
+A autenticação usa a identidade Windows do processo. A conexão é direta ao PI Data Archive e a PIPoints; não utiliza PI Web API nem navegação em elementos do AF/PI System Explorer. Os nomes das tags precisam ser mapeados explicitamente, sem descoberta automática.
 
 Uma única thread executa as chamadas COM. Ela consulta os snapshots a cada 30 segundos no padrão. As medições de origem possuem cadência de 60 segundos; leituras repetidas de um mesmo timestamp não contam como novas medições.
 
@@ -78,7 +78,7 @@ No bloco `[trend]`, `windowSeconds` é parametrizável entre 120 e 3600 segundos
 
 ### 4. Publicação dos alarmes no PI
 
-A escrita é opcional e vem desabilitada. São seis tags de estado por servidor, até 42 saídas para sete servidores. O padrão sugerido é `CSEO.<SERVIDOR>.SCADA.Trend.<MÉTRICA>.State`, com os sufixos CPU, RAM, PrivateMemory, ScriptErrors, LocalQueue e RemoteQueue.
+A escrita é opcional e vem desabilitada. O adaptador AF SDK está restrito à leitura neste projeto: `enableWrites=true` com `piAdapter = "af-sdk"` é rejeitado na inicialização com mensagem clara, porque a rota AF SDK validada no host foi usada apenas para coleta e não para gravação de estados. São seis tags de estado por servidor, até 42 saídas para sete servidores. O padrão sugerido é `CSEO.<SERVIDOR>.SCADA.Trend.<MÉTRICA>.State`, com os sufixos CPU, RAM, PrivateMemory, ScriptErrors, LocalQueue e RemoteQueue.
 
 As tags devem existir previamente no PI. O serviço não cria tags nem altera sua configuração. A inicialização valida nomes de saída no namespace `.SCADA.Trend.*.State`, duplicidades, separação entre entradas e saídas e mapeamento completo das seis análises quando a escrita está habilitada.
 
@@ -104,9 +104,9 @@ O HTTP atende somente `127.0.0.1`, sem autenticação. Uma TV em outro computado
 
 ## Execução e verificação
 
-Para conexão real são necessários Windows, Python 3.11+, PI SDK compatível com a arquitetura do Python, `pywin32` e uma conta Windows autorizada no PI.
+Para conexão real são necessários Windows, Python 3.11+, runtime .NET Framework 4.x, `pythonnet`, a DLL AF SDK instalada em `C:\Program Files (x86)\PIPC\AF\PublicAssemblies\4.0\OSIsoft.AFSDK.dll`, e uma conta Windows autorizada no PI. O caminho nativo `PI SDK COM` continua disponível, mas no host validado a leitura real foi obtida somente via AF SDK.
 
-No diretório `C:\dev\e3-log-watcher`:
+No diretório `C:\dev\dom-watcher`:
 
 ```powershell
 python -m pip install -r scada_api/requirements.txt
@@ -120,7 +120,7 @@ python -B scada_api/test_server.py
 python -B scada_api/test_trends.py
 ```
 
-Última verificação de implementação registrada: 36 testes offline aprovados e verificação de sintaxe Python e JavaScript aprovada. Os testes utilizam mocks para o SDK e não comprovam funcionamento com o PI real.
+Última verificação de implementação registrada: 36 testes offline aprovados, verificação de sintaxe Python e JavaScript aprovada e validação local do caminho AF SDK no servidor `PIDATAPRO` concluída para leitura. Os testes automatizados continuam usando mocks para o SDK, mas a leitura real foi comprovada com o adaptador AF SDK no ambiente Windows desta estação.
 
 ## Pendências
 

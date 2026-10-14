@@ -7,6 +7,7 @@ import argparse
 import copy
 import json
 import math
+import os
 import threading
 import time
 import tomllib
@@ -54,9 +55,22 @@ def load_config(path: Path) -> dict:
         config[key] = value
     if not isinstance(config.get("piServer", ""), str):
         raise ValueError("piServer must be a string")
+    adapter = config.get("piAdapter", "pi-sdk-com")
+    if adapter not in {"pi-sdk-com", "af-sdk"}:
+        raise ValueError("piAdapter must be 'pi-sdk-com' or 'af-sdk'")
+    config["piAdapter"] = adapter
+    default_af_dll = r"C:\Program Files (x86)\PIPC\AF\PublicAssemblies\4.0\OSIsoft.AFSDK.dll"
+    af_dll = config.get("piAfSdkDll", default_af_dll)
+    if not isinstance(af_dll, str) or not af_dll.strip():
+        raise ValueError("piAfSdkDll must be a non-empty string")
+    config["piAfSdkDll"] = af_dll
+    if adapter == "af-sdk" and not os.path.exists(af_dll):
+        raise FileNotFoundError(f"AF SDK DLL is missing: {af_dll}")
     enabled = config.get("enableWrites", False)
     if type(enabled) is not bool:
         raise ValueError("enableWrites must be boolean")
+    if enabled and adapter == "af-sdk":
+        raise ValueError("AF SDK adapter is read-only in this project; set enableWrites=false or select pi-sdk-com for writes.")
     inputs = {tag.casefold() for s in servers for tag in s.get("tags", {}).values()}
     outputs = []
     for server in servers:
@@ -161,7 +175,7 @@ class SnapshotStore:
         self.trends = TrendEngine(config.get("trend"))
         self.publisher = TrendPublisher(config)
         self.snapshot = {
-            "schemaVersion": 1, "source": "pi-sdk-com", "serviceStatus": "starting",
+            "schemaVersion": 1, "source": config.get("piAdapter", "pi-sdk-com"), "serviceStatus": "starting",
             "staleSeconds": config["staleSeconds"], "generatedAt": None,
             "trendPolicy": {"triggerMode": "sustained-rise", "continuitySeconds": 180, **{key: config.get("trend", {}).get(key, default) for key, default in (("measurementSeconds", 60), ("windowSeconds", 600), ("referenceSeconds", 1800), ("memoryWindowSeconds", 900), ("recoverySamples", 3))}},
             "servers": [empty_server(s, "Aguardando configuração e leitura PI.") for s in config["servers"]],
@@ -194,12 +208,18 @@ class SnapshotStore:
             self.publish([empty_server(s, "Configure o PI Data Archive e as tags de leitura.") for s in self.config["servers"]], "not-configured")
             return
         outputs = [tag for s in self.config["servers"] for tag in s.get("outputs", {}).values()] if self.config.get("enableWrites", False) else []
-        client = PIReadClient(self.config["piServer"], allowed_outputs=outputs)
+        client = PIReadClient(
+            self.config["piServer"],
+            allowed_outputs=outputs,
+            adapter=self.config.get("piAdapter", "pi-sdk-com"),
+            af_sdk_dll=self.config.get("piAfSdkDll"),
+        )
         initialized = False
         try:
-            import pythoncom
-            pythoncom.CoInitialize()
-            initialized = True
+            if self.config.get("piAdapter", "pi-sdk-com") == "pi-sdk-com":
+                import pythoncom
+                pythoncom.CoInitialize()
+                initialized = True
             while not self.stop.is_set():
                 try:
                     client.connect()
