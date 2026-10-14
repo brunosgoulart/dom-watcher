@@ -1,0 +1,24 @@
+# Version: 1.0 | Date: 14/10/2026
+# Changes: Ran offline Python and frontend contract tests for pushes and pull requests without PI access or deployment.
+name: Offline checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python offline tests
+        run: python -B -m unittest discover -s scada_api -p 'test_*.py' -v
+      - name: Frontend API contract tests
+        run: node --test web/test-data-source.cjs
+      - name: JavaScript syntax
+        run: |
+          for file in web/*.js; do node --check "$file" || exit 1; done

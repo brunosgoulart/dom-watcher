@@ -1,5 +1,5 @@
-"""Version: 1.3 | Date: 14/10/2026
-Changes: Enforced AF SDK read-only mode, hardened UTC timestamp conversion and quality checks, and kept COM mode for compatibility.
+"""Version: 1.4 | Date: 14/10/2026
+Changes: Reused AF SDK sessions and point caches between polls; discarded failed sessions for reconnection on the next poll.
 """
 from __future__ import annotations
 
@@ -74,7 +74,8 @@ class PIReadClient:
 
     def connect(self) -> None:
         if self.adapter == "af-sdk":
-            self.close()
+            if self.server is not None:
+                return
             clr = self._ensure_af_runtime()
             dll = self._validate_af_dll()
             clr.AddReference(dll)
@@ -85,6 +86,10 @@ class PIReadClient:
             try:
                 server.Connect()
             except Exception as exc:
+                try:
+                    server.Disconnect()
+                except Exception:
+                    pass
                 raise RuntimeError("AF SDK connection unavailable") from exc
             self.server = server
             return
@@ -109,7 +114,11 @@ class PIReadClient:
         point = self.points[tag]
         if point is None:
             raise RuntimeError(f"AF point not found: {tag}")
-        snapshot = point.Snapshot()
+        try:
+            snapshot = point.Snapshot()
+        except Exception:
+            self.close()
+            raise
         raw = getattr(snapshot, "Value", None)
         status = str(getattr(snapshot, "Status", "Bad") or "Bad")
         good = bool(getattr(snapshot, "IsGood", False))
@@ -190,3 +199,4 @@ class PIReadClient:
                 pass
         self.server = None
         self.sdk = None
+
