@@ -1,5 +1,5 @@
-"""Version: 1.0 | Date: 13/10/2026
-Changes: Added offline tests for good, bad, missing, stale and future PI samples and read-only API behavior.
+"""Version: 1.1 | Date: 13/10/2026
+Changes: Added regression coverage for boolean snapshots and malformed tag mappings.
 """
 import json
 import threading
@@ -52,7 +52,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertIsNone(value["metrics"]["runPVT"])
 
     def test_bad_stale_future_and_nan(self):
-        for client in (FakePI(good=False), FakePI(timestamp=1), FakePI(timestamp=102000), FakePI(value=float("nan")), FakePI(value=-1), FakePI(value=101)):
+        for client in (FakePI(good=False), FakePI(timestamp=1), FakePI(timestamp=102000), FakePI(value=float("nan")), FakePI(value=-1), FakePI(value=101), FakePI(value=True)):
             value = read_server(self.item, client, 101000, 10)
             self.assertFalse(value["collecting"])
             self.assertIsNone(value["sampleTime"])
@@ -72,6 +72,13 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot["serviceStatus"], "not-configured")
         self.assertEqual(len(snapshot["servers"]), 7)
         self.assertTrue(all(not s["collecting"] for s in snapshot["servers"]))
+
+    def test_malformed_tags_mapping_is_rejected(self):
+        config = load_config(Path(__file__).with_name("config.example.toml"))
+        config["servers"][0]["tags"] = []
+        with patch("server.tomllib.load", return_value=config):
+            with self.assertRaises(ValueError):
+                load_config(Path(__file__).with_name("config.example.toml"))
 
     def test_history_deduplication(self):
         config = load_config(Path(__file__).with_name("config.example.toml"))

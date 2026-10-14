@@ -1,5 +1,5 @@
-"""Version: 1.3 | Date: 13/10/2026
-Changes: Exposed sustained-rise activation policy and defaulted the principal duration to ten minutes without extra activation samples.
+"""Version: 1.4 | Date: 13/10/2026
+Changes: Rejected malformed tag mappings and boolean snapshot values during defensive validation.
 """
 from __future__ import annotations
 
@@ -41,7 +41,10 @@ def load_config(path: Path) -> dict:
     if any(not isinstance(i, str) or not i or not all(c.isalnum() or c in "-_" for c in i) for i in ids) or len(set(ids)) != len(ids):
         raise ValueError("Server IDs must be unique and URL-safe")
     for server in servers:
-        for key, tag in server.get("tags", {}).items():
+        tags = server.get("tags", {})
+        if not isinstance(tags, dict):
+            raise ValueError("tags must map metric names to PI Point names")
+        for key, tag in tags.items():
             if key not in METRICS or not isinstance(tag, str) or not tag.strip() or tag.lower().startswith("af:") or tag.startswith("\\\\"):
                 raise ValueError("Use supported metric keys and explicit PI Point names")
     for key, default, minimum, maximum in (("pollSeconds", 30, 5, 3600), ("staleSeconds", 120, 5, 86400)):
@@ -129,7 +132,7 @@ def read_server(item: dict, client: PIReadClient, now_ms: float, stale_seconds: 
         try:
             sample = client.read(tags[key])
             value, stamp = sample["value"], sample["timestamp"]
-            valid = (sample["good"] and isinstance(value, (float, int)) and math.isfinite(value)
+            valid = (sample["good"] and not isinstance(value, bool) and isinstance(value, (float, int)) and math.isfinite(value)
                      and value >= 0 and isinstance(stamp, (float, int)) and math.isfinite(stamp)
                      and 0 <= now_ms - stamp <= stale_seconds * 1000)
             if key in PERCENTAGES and valid and value > 100:

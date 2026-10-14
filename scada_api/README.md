@@ -48,7 +48,7 @@ São suportadas 22 métricas: CPU, RAM, memória privada, threads, filas local/r
 
 ### 2. Qualidade das medições
 
-Valores ausentes, ruins, questionáveis, não numéricos, não finitos, negativos, futuros ou antigos são tratados como indisponíveis, nunca como zero. Percentuais devem estar entre 0 e 100. A idade máxima padrão é 120 segundos.
+Valores ausentes, ruins, questionáveis, booleanos, não numéricos, não finitos, negativos, futuros ou antigos são tratados como indisponíveis, nunca como zero. Percentuais devem estar entre 0 e 100. A idade máxima padrão é 120 segundos. A configuração também é rejeitada na inicialização quando `tags` não for um mapeamento de métricas para nomes explícitos de PI Points.
 
 A validade e os cálculos usam os timestamps PI das medições, não o horário de consulta. CPU, RAM, erros por minuto e as duas filas pendentes são essenciais para confirmar a coleta do servidor. O timestamp geral corresponde ao mais antigo entre essas medições essenciais.
 
@@ -120,7 +120,7 @@ python -B scada_api/test_server.py
 python -B scada_api/test_trends.py
 ```
 
-Última verificação de implementação registrada: 35 testes offline aprovados e verificação de sintaxe JavaScript aprovada. Os testes utilizam mocks para o SDK e não comprovam funcionamento com o PI real. Nesta revisão do README, apenas a documentação foi substituída; os testes não foram reexecutados.
+Última verificação de implementação registrada: 36 testes offline aprovados e verificação de sintaxe Python e JavaScript aprovada. Os testes utilizam mocks para o SDK e não comprovam funcionamento com o PI real.
 
 ## Pendências
 
