@@ -1,5 +1,5 @@
-/* Version: 1.16 | Date: 13/10/2026
-Changes: Explained full-duration sustained-rise triggering, optional historical severity and recovery confirmation. */
+/* Version: 1.17 | Date: 14/10/2026
+Changes: Displayed the active AF SDK or COM adapter in the connection badge. */
 'use strict';
 const format = (value, digits = 0) => Number.isFinite(value) ? new Intl.NumberFormat('pt-BR', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value) : '—';
 const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -147,7 +147,8 @@ function renderRoute(moveFocus = false) {
 }
 function renderConnectionState() {
   const state = PI_DATA_STATE;
-  document.getElementById('source-badge').textContent = state.status === 'connected' ? 'PI SDK · CONECTADO' : state.status === 'not-configured' ? 'PI · NÃO CONFIGURADO' : state.status === 'degraded' ? 'PI · DADOS PARCIAIS' : 'PI · SEM CONEXÃO';
+  const adapter = state.source === 'af-sdk' ? 'AF SDK' : 'PI SDK COM';
+  document.getElementById('source-badge').textContent = state.status === 'connected' ? `${adapter} · CONECTADO` : state.status === 'not-configured' ? 'PI · NÃO CONFIGURADO' : state.status === 'degraded' ? `${adapter} · DADOS PARCIAIS` : 'PI · SEM CONEXÃO';
   document.getElementById('simulation-status').textContent = paused ? 'Atualização pausada' : state.message;
   document.getElementById('updated').textContent = state.lastSuccess ? `Resposta às ${new Date(state.lastSuccess).toLocaleTimeString('pt-BR')}` : 'Aguardando dados';
 }
@@ -204,3 +205,4 @@ setInterval(() => {
   else if (document.getElementById('fleet-rows')) renderFleetRows();
   renderConnectionState();
 }, 10000);
+

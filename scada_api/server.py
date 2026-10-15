@@ -1,5 +1,5 @@
-"""Version: 1.4 | Date: 13/10/2026
-Changes: Rejected malformed tag mappings and boolean snapshot values during defensive validation.
+"""Version: 1.5 | Date: 14/10/2026
+Changes: Selected COM or read-only AF SDK explicitly, validated the AF assembly path and limited COM initialization to the COM adapter.
 """
 from __future__ import annotations
 
@@ -294,3 +294,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

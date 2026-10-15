@@ -1,11 +1,11 @@
-/* Version: 1.3 | Date: 13/10/2026
-Changes: Required sustained-rise API policy and defaulted the full-duration trigger to ten minutes without activation sample counters. */
+/* Version: 1.4 | Date: 14/10/2026
+Changes: Accepted explicit COM and AF SDK API sources and exposed the active adapter to connection indicators. */
 'use strict';
 const PI_DATA_STATE = { status: 'starting', message: 'Aguardando API PI', lastSuccess: null, policy: { triggerMode: 'sustained-rise', continuitySeconds: 180, measurementSeconds: 60, windowSeconds: 600, referenceSeconds: 1800, memoryWindowSeconds: 900, recoverySamples: 3 } };
 const PI_ESSENTIAL = ['runCPU', 'runMemory', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'];
 function validTimestamp(value) { return Number.isFinite(value) && value > 0 && value <= Date.now(); }
 function normalizeStatus(payload) {
-  if (payload?.schemaVersion !== 1 || payload.source !== 'pi-sdk-com' || !Array.isArray(payload.servers) || !payload.servers.length || payload.servers.length > MAX_MONITORED_SERVERS) throw Error('Resposta da API incompatível');
+  if (payload?.schemaVersion !== 1 || !['pi-sdk-com', 'af-sdk'].includes(payload.source) || !Array.isArray(payload.servers) || !payload.servers.length || payload.servers.length > MAX_MONITORED_SERVERS) throw Error('Resposta da API incompatível');
   const stale = payload.staleSeconds;
   if (!Number.isFinite(stale) || stale < 5 || stale > 86400) throw Error('Validade da amostra inválida');
   const policy = payload.trendPolicy || PI_DATA_STATE.policy;
@@ -52,6 +52,7 @@ function startDataSource(onUpdate, isPaused) {
         SCADA_SERVER_POSITIONS.splice(0, SCADA_SERVER_POSITIONS.length, ...normalized.servers.map(server => server.id));
         HEALTH_LIMITS.staleSeconds = normalized.stale;
         PI_DATA_STATE.policy = normalized.policy;
+        PI_DATA_STATE.source = payload.source;
         PI_DATA_STATE.status = payload.serviceStatus;
         PI_DATA_STATE.message = ({ connected: 'Leitura PI ativa', 'not-configured': 'Configure o servidor PI e as tags', degraded: 'Leitura PI parcial', unavailable: 'Conexão PI indisponível', starting: 'Aguardando leitura PI' })[payload.serviceStatus] || 'Estado PI desconhecido';
         PI_DATA_STATE.lastSuccess = Date.now();
@@ -66,3 +67,4 @@ function startDataSource(onUpdate, isPaused) {
   }
   poll();
 }
+

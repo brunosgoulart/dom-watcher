@@ -1,5 +1,5 @@
-"""Version: 1.2 | Date: 14/10/2026
-Changes: Added AF SDK adapter regressions for UTC timestamps, bad/questionable values, digital/boolean rejection, reconnect safety and write restrictions.
+"""Version: 1.3 | Date: 14/10/2026
+Changes: Tested AF session reuse, recovery after snapshot failure and failed-connect cleanup; isolated DLL validation from write-guard tests.
 """
 import json
 import threading
@@ -115,7 +115,7 @@ class SnapshotTests(unittest.TestCase):
         config = load_config(Path(__file__).with_name("config.example.toml"))
         config["piAdapter"] = "af-sdk"
         config["enableWrites"] = True
-        with patch("server.tomllib.load", return_value=config):
+        with patch("server.tomllib.load", return_value=config), patch("server.os.path.exists", return_value=True):
             with self.assertRaisesRegex(ValueError, "AF SDK.*read-only|enableWrites.*af-sdk|write.*disabled"):
                 load_config(Path(__file__).with_name("config.example.toml"))
 
@@ -184,6 +184,49 @@ class SnapshotTests(unittest.TestCase):
             client.write_alarm("CSEO.TAG.State", 10)
         self.assertFalse(client.server.Connected)
 
+    def test_af_sdk_connect_reuses_session_and_point_cache(self):
+        client = PIReadClient("TEST", adapter="af-sdk")
+        session = SimpleNamespace(Disconnect=Mock())
+        client.server = session
+        point = object()
+        client.points["TAG"] = point
+        with patch.object(client, "_ensure_af_runtime") as runtime:
+            client.connect()
+            client.connect()
+        runtime.assert_not_called()
+        session.Disconnect.assert_not_called()
+        self.assertIs(client.points["TAG"], point)
+
+    def test_af_sdk_snapshot_failure_reconnects_on_next_connect(self):
+        client = PIReadClient("TEST", adapter="af-sdk")
+        old_session = SimpleNamespace(Disconnect=Mock())
+        client.server = old_session
+        client.points["TAG"] = SimpleNamespace(Snapshot=Mock(side_effect=RuntimeError("network failure")))
+        with self.assertRaisesRegex(RuntimeError, "network failure"):
+            client.read("TAG")
+        self.assertIsNone(client.server)
+        self.assertFalse(client.points)
+        old_session.Disconnect.assert_called_once()
+        new_session = SimpleNamespace(Connect=Mock(), Disconnect=Mock())
+        pi_module = SimpleNamespace(PIServer=SimpleNamespace(FindPIServer=Mock(return_value=new_session)))
+        clr = SimpleNamespace(AddReference=Mock())
+        with patch.dict(sys.modules, {"OSIsoft.AF.PI": pi_module}), patch.object(client, "_ensure_af_runtime", return_value=clr), patch.object(client, "_validate_af_dll", return_value="test.dll"):
+            client.connect()
+        new_session.Connect.assert_called_once()
+        self.assertIs(client.server, new_session)
+
+    def test_af_sdk_failed_connect_cleans_up_session(self):
+        client = PIReadClient("TEST", adapter="af-sdk")
+        session = SimpleNamespace(Connect=Mock(side_effect=RuntimeError("denied")), Disconnect=Mock())
+        pi_module = SimpleNamespace(PIServer=SimpleNamespace(FindPIServer=Mock(return_value=session)))
+        clr = SimpleNamespace(AddReference=Mock())
+        with patch.dict(sys.modules, {"OSIsoft.AF.PI": pi_module}), patch.object(client, "_ensure_af_runtime", return_value=clr), patch.object(client, "_validate_af_dll", return_value="test.dll"):
+            with self.assertRaisesRegex(RuntimeError, "AF SDK connection unavailable"):
+                client.connect()
+        session.Disconnect.assert_called_once()
+        self.assertIsNone(client.server)
+
 
 if __name__ == "__main__":
     unittest.main()
+

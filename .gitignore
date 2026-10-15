@@ -2,3 +2,11 @@
 .venv-afsdk/
 *.log
 config.pi-test.toml
+__pycache__/
+*.py[cod]
+real_read_afsdk*.txt
+afsdk_runtime_debug.txt
+afsdk_test.txt
+out.txt
+verify.txt
+

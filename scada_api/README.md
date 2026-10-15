@@ -38,11 +38,11 @@ Este serviço é independente da aplicação analítica em `../app/`. Não utili
 
 ### 1. Conexão e leitura
 
-O serviço aceita o adaptador `pi-sdk-com` e o adaptador `af-sdk`. No ambiente validado neste computador, a rota em produção para leitura foi `AF SDK` via `pythonnet` carregando o runtime `.NET Framework 4.x` e referenciando `OSIsoft.AFSDK.dll`, seguida de `PIServer.FindPIServer(...)` e `Connect()`. O caminho COM do PI SDK continua preservado como compatibilidade e como fallback explícito, mas não é o caminho de validação corrente no host.
+O serviço aceita seleção explícita entre `pi-sdk-com` e `af-sdk`, sem fallback automático. O teste real de uma tag relatado em 14/10/2026 utilizou AF SDK via `pythonnet`, runtime `netfx` e `OSIsoft.AFSDK.dll`, com `PIServer.FindPIServer(...)` e `Connect()`. Esse teste não representa comissionamento completo do serviço ou do painel. O modo AF SDK reutiliza a sessão e o cache de PIPoints entre coletas; uma exceção de leitura do snapshot descarta a sessão para reconectar no próximo ciclo. Falhas de localização de uma tag continuam isoladas dessa sessão.
 
 A autenticação usa a identidade Windows do processo. A conexão é direta ao PI Data Archive e a PIPoints; não utiliza PI Web API nem navegação em elementos do AF/PI System Explorer. Os nomes das tags precisam ser mapeados explicitamente, sem descoberta automática.
 
-Uma única thread executa as chamadas COM. Ela consulta os snapshots a cada 30 segundos no padrão. As medições de origem possuem cadência de 60 segundos; leituras repetidas de um mesmo timestamp não contam como novas medições.
+Uma única thread executa as chamadas ao adaptador PI. A inicialização COM ocorre somente no modo `pi-sdk-com`. Ela consulta os snapshots a cada 30 segundos no padrão. As medições de origem possuem cadência de 60 segundos; leituras repetidas de um mesmo timestamp não contam como novas medições.
 
 São suportadas 22 métricas: CPU, RAM, memória privada, threads, filas local/remota, ocupação, erros por minuto, CPU do servidor, handles, espaço livre em disco, fila e atraso de E/S, tamanho do arquivo informado pela tag, tempo de execução, uptime e taxas de entrada/tratamento/descarte das filas. Apenas as tags configuradas são lidas. O serviço não lê arquivos locais nem calcula taxas a partir de contadores brutos.
 
@@ -88,7 +88,7 @@ O status de publicação aparece na API e falhas ficam visíveis no painel. Suce
 
 ### 5. API e painel web
 
-`GET /api/v1/status` entrega o cache com métricas, qualidade, timestamps, tendências, estados de publicação e política de análise. Abrir mais abas não aumenta as consultas ao PI. Não existe API HTTP de mutação.
+`GET /api/v1/status` entrega o cache com métricas, qualidade, timestamps, tendências, estados de publicação e política de análise. O campo `source` identifica `af-sdk` ou `pi-sdk-com`; o painel aceita ambos e identifica o adaptador no indicador de conexão. Abrir mais abas não aumenta as consultas ao PI. Não existe API HTTP de mutação.
 
 O navegador atualiza a cada 10 segundos no padrão. A visão geral foi desenhada para TV, com nomes e indicadores ampliados, radar operacional visual, lista de alarmes e acesso aos detalhes de cada servidor.
 
@@ -120,7 +120,35 @@ python -B scada_api/test_server.py
 python -B scada_api/test_trends.py
 ```
 
-Última verificação de implementação registrada: 36 testes offline aprovados, verificação de sintaxe Python e JavaScript aprovada e validação local do caminho AF SDK no servidor `PIDATAPRO` concluída para leitura. Os testes automatizados continuam usando mocks para o SDK, mas a leitura real foi comprovada com o adaptador AF SDK no ambiente Windows desta estação.
+Verificação desta revisão em 14/10/2026: 44 testes Python offline e quatro testes Node.js aprovados, além de verificação de sintaxe JavaScript. Os testes Node geram respostas pelo `SnapshotStore` real e verificam sua aceitação pelo JavaScript para ambos os adaptadores. Os testes de conexão e reconexão usam mocks; nenhum acesso ao PI real ou escrita foi executado nesta revisão. A leitura real de uma tag pelo cliente AF SDK foi relatada anteriormente na estação PI e precisa ser repetida no ambiente de implantação.
+
+### Preparação da implantação de leitura em 15/10/2026
+
+1. Atualize a instalação com a revisão aprovada. Crie uma cópia local de `config.example.toml` como `scada_api/config.pi-test.toml`, sem versionar os dados do ambiente.
+2. Selecione `piAdapter = "af-sdk"`, confira `piAfSdkDll`, informe o PI Data Archive e mantenha `enableWrites = false`. No TOML, use barras duplas em strings com aspas duplas ou um caminho literal com aspas simples.
+3. Cadastre inicialmente um servidor e mapeie suas tags reais, sem nomes presumidos. CPU, RAM, erros/min e filas pendentes local/remota são essenciais para `collecting=true`; memória privada também é necessária para completar as seis análises de tendência.
+4. Prepare o ambiente Windows com AF SDK instalado e uma conta autorizada. Instale as dependências no ambiente virtual de execução:
+
+```powershell
+python -m venv .venv-afsdk
+& '.\.venv-afsdk\Scripts\python.exe' -m pip install -r scada_api/requirements.txt
+& '.\.venv-afsdk\Scripts\python.exe' -u scada_api/server.py --config scada_api/config.pi-test.toml --port 8768
+```
+
+5. Abra `http://127.0.0.1:8768/api/v1/status` e `http://127.0.0.1:8768/#overview`. Confirme `source=af-sdk`, valores, unidades, qualidade e timestamps recentes. Durante a construção do histórico de tendência, a interface pode mostrar estado desconhecido e ocultar os valores; confira as métricas individuais na API durante esse período.
+6. Observe por pelo menos 15 minutos e valide perda/retomada de conexão em ambiente controlado. Registre as evidências e só então amplie o inventário. A conta Windows do processo define a identidade usada: ao executar manualmente é a conta do terminal; serviço/tarefa agendada usa a conta configurada para a execução.
+
+Verificações reproduzíveis, a partir da raiz do projeto:
+
+```powershell
+& '.\.venv-afsdk\Scripts\python.exe' -B -m unittest discover -s scada_api -p 'test_*.py'
+$env:PYTHON = (Resolve-Path '.\.venv-afsdk\Scripts\python.exe').Path
+node --test web/test-data-source.cjs
+```
+
+Node.js é necessário para os testes do frontend, não para executar o painel. A configuração de exemplo mantém COM e entradas vazias, portanto iniciá-la sem ajustes não valida a conexão AF SDK. O serviço permanece limitado a loopback e o acesso de uma TV remota exige a implantação de rede descrita nas pendências. O AF SDK continua bloqueado para escrita; nenhuma alteração nesta revisão habilita publicação no PI.
+
+Arquivos `__pycache__`, bytecode e o resultado local `real_read_afsdk.txt` foram retirados da versão rastreada; os conteúdos anteriores continuam recuperáveis no histórico Git. O `.gitignore` impede sua inclusão futura. Isso não remove dados do histórico nem os arquivos da estação de teste.
 
 ## Pendências
 
@@ -147,3 +175,4 @@ python -B scada_api/test_trends.py
 - [ ] Avaliar confirmação de escrita por releitura e diagnóstico operacional adicional.
 
 A chegada dos dados ao PI via SCADA está resolvida externamente e não deve ser reintroduzida como pendência. Nenhum item deve ser marcado como concluído apenas por existir código: as pendências de ambiente precisam de validação real.
+
