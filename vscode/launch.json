@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Monitor SCADA — AF SDK",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "${workspaceFolder}/.venv-afsdk/Scripts/python.exe",
+      "program": "${workspaceFolder}/scada_api/server.py",
+      "args": [
+        "--config",
+        "${workspaceFolder}/scada_api/config.pi-test.toml",
+        "--port",
+        "8768"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
