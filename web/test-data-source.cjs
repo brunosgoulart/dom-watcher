@@ -1,5 +1,5 @@
 /* Version: 1.0 | Date: 14/10/2026
-Changes: Verified frontend acceptance of API payloads from both PI adapters and rejection of unknown sources. */
+Changes: Verified frontend acceptance of PI and local simulation API payloads and rejection of unknown sources. */
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -31,7 +31,7 @@ function apiPayload(source) {
   }));
 }
 
-for (const source of ['af-sdk', 'pi-sdk-com']) {
+for (const source of ['af-sdk', 'pi-sdk-com', 'simulated']) {
   test(`frontend accepts real backend payload for ${source}`, () => {
     const context = createContext();
     context.payload = apiPayload(source);

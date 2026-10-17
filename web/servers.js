@@ -13,15 +13,22 @@ function healthOf(server, now = Date.now()) {
   }
   const m = server.metrics;
   if (['runCPU', 'runMemory', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'].some(key => !Number.isFinite(m[key]))) return unknown('Métricas essenciais ausentes na amostra.');
-  if (!Array.isArray(server.trends) || server.trends.length !== 6) return unknown('Motor de tendências ainda indisponível.');
+  if (!Array.isArray(server.trends) || !['runCPU', 'runMemory', 'runPVT', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'].every(key => server.trends.some(t => t.metric === key))) return unknown('Motor de tendências ainda indisponível.');
   const titles = { runCPU: 'Tendência de CPU', runMemory: 'Tendência de RAM', runPVT: 'Tendência de memória privada', runErrorsPerMinute: 'Tendência de erros', runLocalPending: 'Tendência da fila local', runRemotePending: 'Tendência da fila remota' };
   const signals = server.trends.filter(t => t.state !== 0).map(t => ({
+    metric: t.metric,
     state: t.state === 20 ? 'critical' : t.state === 10 ? 'warning' : 'unknown',
     stateLabel: t.state === 30 ? 'Histórico' : t.state === 40 ? 'Sem dados' : t.stateLabel,
-    title: titles[t.metric],
+    title: t.metric === 'runTRD' ? 'Threads' : titles[t.metric],
     description: t.state >= 30 ? t.reason : `${Number.isFinite(t.slope) ? (t.metric === 'runPVT' ? t.slope / 1024 : t.slope).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'} ${t.metric === 'runPVT' ? 'MiB/min' : ['runCPU', 'runMemory'].includes(t.metric) ? 'p.p./min' : t.metric === 'runErrorsPerMinute' ? 'erros/min²' : 'eventos/min'} · score ${Number.isFinite(t.score) ? t.score.toFixed(2) : '—'} · janela ${t.windowSeconds / 60} min · publicação ${t.writeStatus}`
   }));
   if (server.trends.some(t => t.writeStatus === 'failed')) signals.push({ state: 'warning', title: 'Falha na publicação PI', description: 'Alarme calculado, mas escrita da tag de saída não confirmada.' });
+  for (const signal of signals) {
+    if (signal.metric === 'runTRD') signal.description = signal.description.replace('eventos/min', 'threads/min');
+    if (['runCPU', 'runMemory'].includes(signal.metric)) {
+      signal.description = signal.description.replace(/^(.+?) p\.p\.\/min/, '↑ $1 por minuto');
+    }
+  }
   signals.sort((a, b) => HEALTH_STATES[a.state].priority - HEALTH_STATES[b.state].priority);
   return { state: signals[0]?.state || 'healthy', alerts: signals.map(signal => `${signal.title}: ${signal.description}`), signals };
 }

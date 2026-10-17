@@ -1,11 +1,11 @@
-/* Version: 1.4 | Date: 14/10/2026
-Changes: Accepted explicit COM and AF SDK API sources and exposed the active adapter to connection indicators. */
+/* Version: 1.6 | Date: 16/10/2026
+Changes: Accepted the explicit local simulation API source and its no-PI status message. */
 'use strict';
 const PI_DATA_STATE = { status: 'starting', message: 'Aguardando API PI', lastSuccess: null, policy: { triggerMode: 'sustained-rise', continuitySeconds: 180, measurementSeconds: 60, windowSeconds: 600, referenceSeconds: 1800, memoryWindowSeconds: 900, recoverySamples: 3 } };
 const PI_ESSENTIAL = ['runCPU', 'runMemory', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'];
 function validTimestamp(value) { return Number.isFinite(value) && value > 0 && value <= Date.now(); }
 function normalizeStatus(payload) {
-  if (payload?.schemaVersion !== 1 || !['pi-sdk-com', 'af-sdk'].includes(payload.source) || !Array.isArray(payload.servers) || !payload.servers.length || payload.servers.length > MAX_MONITORED_SERVERS) throw Error('Resposta da API incompatível');
+  if (payload?.schemaVersion !== 1 || !['pi-sdk-com', 'af-sdk', 'simulated'].includes(payload.source) || !Array.isArray(payload.servers) || !payload.servers.length || payload.servers.length > MAX_MONITORED_SERVERS) throw Error('Resposta da API incompatível');
   const stale = payload.staleSeconds;
   if (!Number.isFinite(stale) || stale < 5 || stale > 86400) throw Error('Validade da amostra inválida');
   const policy = payload.trendPolicy || PI_DATA_STATE.policy;
@@ -25,13 +25,15 @@ function normalizeStatus(payload) {
     }
     const collecting = server.collecting === true && PI_ESSENTIAL.every(key => Number.isFinite(metrics[key])) && validTimestamp(server.sampleTime) && Date.now() - server.sampleTime <= stale * 1000;
     const trendKeys = ['runCPU', 'runMemory', 'runPVT', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'];
+    const requiredTrends = [...trendKeys];
+    if (payload.source === 'simulated') trendKeys.push('runTRD');
     const trends = Array.isArray(server.trends) ? server.trends : [];
     const trendIds = new Set();
     for (const trend of trends) {
       if (!trendKeys.includes(trend.metric) || trendIds.has(trend.metric) || ![0, 10, 20, 30, 40].includes(trend.state)) throw Error('Estados de tendência inválidos');
       trendIds.add(trend.metric);
     }
-    if (trends.length && trends.length !== 6) throw Error('Tendências incompletas');
+    if (trends.length && !requiredTrends.every(key => trendIds.has(key))) throw Error('Tendências incompletas');
     const histories = {};
     for (const kind of ['local', 'remote']) histories[kind] = (Array.isArray(server.histories?.[kind]) ? server.histories[kind] : []).filter(point => validTimestamp(point.timestamp) && ['entered', 'handled', 'discard'].every(key => Number.isFinite(point[key]) && point[key] >= 0) && point.discard <= 100).sort((a, b) => a.timestamp - b.timestamp).slice(-120);
     return { id: server.id, name: String(server.name || server.id), site: String(server.site || ''), environment: String(server.environment || ''), role: String(server.role || ''), sampleTime: validTimestamp(server.sampleTime) ? server.sampleTime : null, collecting, metrics, histories, trends, message: String(server.message || '') };
@@ -54,7 +56,9 @@ function startDataSource(onUpdate, isPaused) {
         PI_DATA_STATE.policy = normalized.policy;
         PI_DATA_STATE.source = payload.source;
         PI_DATA_STATE.status = payload.serviceStatus;
-        PI_DATA_STATE.message = ({ connected: 'Leitura PI ativa', 'not-configured': 'Configure o servidor PI e as tags', degraded: 'Leitura PI parcial', unavailable: 'Conexão PI indisponível', starting: 'Aguardando leitura PI' })[payload.serviceStatus] || 'Estado PI desconhecido';
+        PI_DATA_STATE.message = payload.source === 'simulated' && payload.serviceStatus === 'connected'
+          ? 'Dados simulados locais ativos — sem comunicação PI'
+          : ({ connected: 'Leitura PI ativa', 'not-configured': 'Configure o servidor PI e as tags', degraded: 'Leitura PI parcial', unavailable: 'Conexão PI indisponível', starting: 'Aguardando leitura PI' })[payload.serviceStatus] || 'Estado PI desconhecido';
         PI_DATA_STATE.lastSuccess = Date.now();
       } catch {
         for (const server of SERVERS) { server.collecting = false; server.message = 'API PI indisponível'; }

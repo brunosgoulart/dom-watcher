@@ -1,6 +1,6 @@
 # README
 
-Atualizado em: 14/10/2026.
+Atualizado em: 16/10/2026.
 
 ## Regra obrigatória de manutenção para IAs e desenvolvedores
 
@@ -29,6 +29,7 @@ A implementação está disponível para integração e comissionamento e foi va
 - `pi_client.py`: conexão PI SDK COM compatível e rota AF SDK via pythonnet/netfx, leitura de snapshots e escrita restrita dos estados.
 - `trends.py`: cálculo das tendências e estados por métrica e servidor.
 - `trend_output.py`: publicação dos estados, heartbeat e retentativas.
+- `simulated_preview.py`: servidor local de prévia visual com dados sintéticos, sem acesso ao PI.
 - `config.example.toml`: exemplo de configuração com sete posições e nomes ilustrativos.
 - `test_server.py` e `test_trends.py`: testes offline.
 
@@ -88,15 +89,25 @@ O status de publicação aparece na API e falhas ficam visíveis no painel. Suce
 
 ### 5. API e painel web
 
-`GET /api/v1/status` entrega o cache com métricas, qualidade, timestamps, tendências, estados de publicação e política de análise. O campo `source` identifica `af-sdk` ou `pi-sdk-com`; o painel aceita ambos e identifica o adaptador no indicador de conexão. Abrir mais abas não aumenta as consultas ao PI. Não existe API HTTP de mutação.
+`GET /api/v1/status` entrega o cache com métricas, qualidade, timestamps, tendências, estados de publicação e política de análise. O campo `source` identifica `af-sdk`, `pi-sdk-com` ou `simulated`; o painel identifica a origem no indicador de conexão. Abrir mais abas não aumenta as consultas ao PI. Não existe API HTTP de mutação.
 
-O navegador atualiza a cada 10 segundos no padrão. A visão geral foi desenhada para TV, com nomes e indicadores ampliados, radar operacional visual, lista de alarmes e acesso aos detalhes de cada servidor.
+O navegador atualiza os dados a cada 10 segundos no padrão. A visão geral exibe um carrossel com um servidor por vez, seguindo a ordem do inventário. Cada página contém os mesmos blocos de Performance e Eventos da página individual: CPU, memória do sistema, memória privada, threads, filas local/remota, ocupação e erros/minuto.
 
-O painel “Desempenho do Ambiente SCADA” mantém posições fixas na ordem configurada, sem ordenar pelas métricas. As barras CPU/RAM utilizam limites absolutos visuais demonstrativos, diferentes da regra de tendência usada pelos alarmes. Radar e inventário possuem suas próprias regras de organização e paginação.
+O carrossel avança automaticamente a cada 10 segundos e retorna ao primeiro servidor ao completar o ciclo. Há botões anterior/próximo, seleção direta pelo nome e pausa própria da rotação. A pausa global também suspende a troca; abrir os detalhes interrompe a rotação enquanto essa página estiver visível. As atualizações da API preservam a posição selecionada.
 
-Os gráficos de fluxo acumulam até 120 amostras por fila e servidor somente durante a execução. Não existe consulta retroativa ao histórico PI. Pausar a atualização no navegador não interrompe aquisição, cálculo ou publicação no serviço.
+A área superior direita da visão geral contém o Monitoramento compacto de todos os servidores, com dois alarmes por página e rotação independente a cada 10 segundos. A pausa do carrossel de servidores não pausa o Monitoramento; a pausa global suspende ambos. Valores atuais, taxas, estados e nomes dos servidores usam fontes compactas para caber nessa área. Limites demonstrativos e tabela de servidores permanecem fora da visão geral. As análises de tendência também permanecem disponíveis na API e na página individual. Em janelas de desktop com largura mínima de 900 px, a visão geral distribui o cabeçalho, o Monitoramento, as duas linhas de métricas e o rodapé na altura da janela. Em telas estreitas, o layout empilha os blocos e permite rolagem para preservar a leitura. Valores válidos são exibidos na visão geral mesmo durante o aquecimento do histórico; amostras indisponíveis aparecem como traços.
 
-### 6. Limites atuais
+Os gráficos de fluxo da página individual acumulam até 120 amostras por fila e servidor somente durante a execução. Não existe consulta retroativa ao histórico PI. Pausar a atualização no navegador não interrompe aquisição, cálculo ou publicação no serviço.
+
+### 6. Prévia simulada da interface
+
+Para revisão visual sem um PI Data Archive configurado, `simulated_preview.py` inicia um servidor limitado a `127.0.0.1` e fornece amostras sintéticas sempre atuais. Ele não lê, cria nem grava PI Points e não usa o arquivo de configuração de comunicação. A interface identifica a origem como `SIMULAÇÃO LOCAL`.
+
+A prévia contém `COGCGPRO12`, `COGCGPRO34` e `COGCGPRO56`, com os 16 pontos selecionados para o painel: CPU, memória, memória privada, threads, filas local/remota, ocupação, erros/minuto, CPU e handles do E3Server, fila e atraso de E/S, tempo total, uptime e descarte local/remoto. Ela representa, respectivamente, uma carga estável, um alerta de tendência de CPU e um alerta crítico de tendência de memória. É uma ferramenta de interface, não uma validação do cálculo real das tendências ou da integração PI.
+
+O mesmo inventário alimenta a visão geral, o seletor de servidores e as três páginas individuais (`#server/COGCGPRO12`, `#server/COGCGPRO34` e `#server/COGCGPRO56`). O radar exibe somente os servidores com sinalizações ativas. Em 16/10/2026, a navegação para cada uma das três páginas foi verificada no navegador, com nome, métricas e estado correspondentes. As configurações de comunicação PI foram preservadas.
+
+### 7. Limites atuais
 
 Históricos e estados internos ficam em memória. Reiniciar o serviço perde o histórico local e exige reconstruir a janela com medições válidas; o histórico do PI não é apagado. Não há persistência ou restauração dos alarmes confirmados após reinício.
 
@@ -120,7 +131,13 @@ python -B scada_api/test_server.py
 python -B scada_api/test_trends.py
 ```
 
-Verificação desta revisão em 14/10/2026: 44 testes Python offline e quatro testes Node.js aprovados, além de verificação de sintaxe JavaScript. Os testes Node geram respostas pelo `SnapshotStore` real e verificam sua aceitação pelo JavaScript para ambos os adaptadores. Os testes de conexão e reconexão usam mocks; nenhum acesso ao PI real ou escrita foi executado nesta revisão. A leitura real de uma tag pelo cliente AF SDK foi relatada anteriormente na estação PI e precisa ser repetida no ambiente de implantação.
+Para abrir a prévia visual simulada, sem comunicação PI:
+
+```powershell
+python -B scada_api/simulated_preview.py --port 8768
+```
+
+Verificação desta revisão em 16/10/2026: um teste Python da simulação e cinco testes Node.js aprovados, além da verificação de sintaxe JavaScript e da navegação no navegador pela visão geral e pelas três páginas individuais. Na suíte Python preexistente, 33 testes passaram e 11 falharam por ausência da DLL AF SDK configurada nesta máquina. Os testes Node verificam a aceitação do contrato da API para os adaptadores PI e a origem de simulação. Os testes de conexão e reconexão usam mocks; nenhum acesso ao PI real ou escrita foi executado nesta revisão. A leitura real de uma tag pelo cliente AF SDK foi relatada anteriormente na estação PI e precisa ser repetida no ambiente de implantação.
 
 ### Preparação da implantação de leitura em 15/10/2026
 
@@ -151,6 +168,11 @@ Node.js é necessário para os testes do frontend, não para executar o painel. 
 Arquivos `__pycache__`, bytecode e o resultado local `real_read_afsdk.txt` foram retirados da versão rastreada; os conteúdos anteriores continuam recuperáveis no histórico Git. O `.gitignore` impede sua inclusão futura. Isso não remove dados do histórico nem os arquivos da estação de teste.
 
 ## Pendências
+
+### Prévia visual local
+
+- [x] Disponibilizar e verificar COGCGPRO12, COGCGPRO34 e COGCGPRO56 na visão geral, no seletor e nas páginas individuais com dados simulados.
+- [x] Exibir o carrossel de Performance e Eventos com Monitoramento compacto no canto superior direito. Verificar rotação dos três servidores e dos alarmes, pausa e encaixe do conteúdo na janela de desktop em 16/10/2026.
 
 ### Obrigatórias para comissionamento e produção
 
