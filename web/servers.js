@@ -3,12 +3,12 @@ Changes: Classified server health and radar signals using trend states, insuffic
 'use strict';
 const HEALTH_STATES = {
   healthy: { label: 'Sem alarmes ativos', priority: 3 }, warning: { label: 'Atenção', priority: 1 },
-  critical: { label: 'Crítico', priority: 0 }, unknown: { label: 'Sem dados recentes', priority: 2 }
+  critical: { label: 'Crítico', priority: 0 }, unknown: { label: 'Estado não confirmado', priority: 2 }
 };
 let HEALTH_LIMITS = { staleSeconds: 120 };
 function healthOf(server, now = Date.now()) {
   const absoluteSignals = (server.absoluteAlarms || []).flatMap(alarm => {
-    const valid = Number.isFinite(server.metrics?.[alarm.metric]) && Number.isFinite(alarm.timestamp) && now - alarm.timestamp >= 0 && now - alarm.timestamp <= HEALTH_LIMITS.staleSeconds * 1000;
+    const valid = server.apiAvailable !== false && Number.isFinite(server.metrics?.[alarm.metric]) && Number.isFinite(alarm.timestamp) && now - alarm.timestamp >= 0 && now - alarm.timestamp <= HEALTH_LIMITS.staleSeconds * 1000;
     const state = valid ? alarm.state : 40;
     const failure = alarm.writeStatus === 'failed' ? [{ state: 'warning', title: 'Falha na publicação PI', description: 'Escrita do alarme absoluto não confirmada.' }] : [];
     if (state === 0) return failure;

@@ -171,12 +171,17 @@ Abra `http://127.0.0.1:8768/#overview`. Não iniciar uma segunda instância na m
 Diagnóstico, executado somente sob demanda:
 
 ```powershell
+python -B scada_api/server.py --config scada_api/config.toml --check-config
 python -B scada_api/diagnose_afsdk.py client --config scada_api/config.toml
 python -B scada_api/diagnose_pi.py --server NOME_DO_PI --tag NOME_DA_TAG
 python -B scada_api/diagnose_runtime.py
 ```
 
-Esses comandos podem realizar leitura no PI; não publicam alarmes. O diagnóstico AF SDK usa o arquivo operacional ou os argumentos `--server` e `--tag`, sem servidor/tag fixados no código.
+`--check-config` não abre conexão nem cria cliente PI: verifica o endereço configurado, as cinco entradas essenciais por servidor, Windows e os módulos Python do adaptador. Retorna 0 quando esses requisitos locais passam e 2 quando há pendências. A DLL AF SDK continua validada ao carregar a configuração. Execute com o mesmo Python do serviço. Esse resultado não comprova SDK COM registrado, autenticação, existência/unidades das tags ou acesso ao historiador.
+
+Os demais comandos podem realizar leitura no PI; não publicam alarmes. O diagnóstico AF SDK usa o arquivo operacional ou os argumentos `--server` e `--tag`, sem servidor/tag fixados no código.
+
+Cada medição é apresentada conforme sua própria qualidade e timestamp, sem esperar o histórico mínimo das tendências e sem ocultar as leituras válidas por falha de outra entrada. Valores vencidos, futuros, inválidos ou após falha da API não são mostrados como atuais. Memória privada é apresentada em KiB e erros/minuto com uma casa decimal. A origem simulada permanece bloqueada no painel operacional.
 
 ## Verificação de engenharia
 
@@ -202,6 +207,8 @@ Node.js só é necessário para as verificações do frontend. As verificações
 Verificação do serviço: 56 verificações Python aprovadas; a integração HTTP local é exercitada sem acessar o PI. Verificação da apresentação em 18/10/2026: 14 verificações JavaScript aprovadas, incluindo painel acessível de informações da conexão e relógio no fuso de São Paulo e independente da pausa, símbolos de severidade, formato das linhas de alarme, distinção de tendência/limite e separação entre ativo e indisponível. Incluem a geração isolada dos três servidores e a rejeição da origem simulada pelo frontend operacional. Prévia na porta 8769 conferida no navegador com valores e alarmes absolutos/tendência. Comunicação e permissões de escrita foram preservadas. A configuração local foi renomeada sem alterar os parâmetros de conexão, consulta ou publicação; apenas os metadados do servidor foram padronizados.
 
 ## Pendências de implantação
+
+Preparação para leitura real em 18/10/2026: 61 verificações Python e 16 JavaScript aprovadas. Cobrem também leitura parcial, métricas durante formação de tendências, expiração individual, indisponibilidade da API e timestamps inválidos na serialização JSON. A configuração privada e a comunicação existente foram preservadas. A verificação local aponta ausência de PI Data Archive, mapeamento das entradas e módulos COM no Python utilizado; não foi possível validar conexão ou valores reais. Não considerar este resultado um comissionamento concluído.
 
 Verificação visual em 18/10/2026: títulos de métricas discretos, nomes de servidores ampliados, cartões compactos e botão de pausa exclusivo do carrossel removido. Dez verificações JavaScript aprovadas, incluindo ausência desse botão e preservação da pausa global. No navegador, não houve corte de cartões nem rolagem da página nos viewports de 1280×720 e 2133×1000. Não houve alteração da comunicação ou acesso ao PI.
 

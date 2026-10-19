@@ -19,6 +19,7 @@ from pi_client import PIReadClient
 from trends import TREND_METRICS, TrendEngine
 from trend_output import TrendPublisher
 from absolute_alarms import evaluate_absolute, validate_absolute
+from readiness import configuration_report
 
 METRICS = (
     "runCPU", "runMemory", "runPVT", "runTRD", "runLocalPending",
@@ -150,14 +151,14 @@ def read_server(item: dict, client: PIReadClient, now_ms: float, stale_seconds: 
             sample = client.read(tags[key])
             value, stamp = sample["value"], sample["timestamp"]
             valid = (sample["good"] and not isinstance(value, bool) and isinstance(value, (float, int)) and math.isfinite(value)
-                     and value >= 0 and isinstance(stamp, (float, int)) and math.isfinite(stamp)
+                     and value >= 0 and not isinstance(stamp, bool) and isinstance(stamp, (float, int)) and math.isfinite(stamp)
                      and 0 <= now_ms - stamp <= stale_seconds * 1000)
             if key in PERCENTAGES and valid and value > 100:
                 valid = False
             result["metrics"][key] = value if valid else None
             result["metricQuality"][key] = {
                 "good": bool(valid), "status": sample["status"] if valid else "InvalidOrStale",
-                "timestamp": stamp,
+                "timestamp": stamp if not isinstance(stamp, bool) and isinstance(stamp, (float, int)) and math.isfinite(stamp) else None,
             }
         except Exception:
             result["metricQuality"][key] = {"good": False, "status": "ReadFailure", "timestamp": None}
@@ -282,8 +283,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.toml"))
     parser.add_argument("--port", type=int, default=8767)
+    parser.add_argument("--check-config", action="store_true", help="Validate local PI configuration and dependencies without connecting or writing.")
     args = parser.parse_args()
-    config = load_config(args.config)
+    try:
+        config = load_config(args.config)
+    except (OSError, ValueError, TypeError) as exc:
+        parser.error(f"Configuration error: {exc}")
+    if args.check_config:
+        report = configuration_report(config)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if report["readyForConnection"] else 2)
     store = SnapshotStore(config)
     worker = threading.Thread(target=store.poll, name="pi-com-reader", daemon=True)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, Path(__file__).resolve().parents[1] / "web"))

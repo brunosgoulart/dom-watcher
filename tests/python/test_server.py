@@ -71,6 +71,13 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(value["metrics"]["runMemory"], 10)
         self.assertFalse(value["collecting"])
 
+    def test_non_finite_and_boolean_timestamps_produce_valid_json(self):
+        for timestamp in (float('nan'), float('inf'), True):
+            value = read_server(self.item, FakePI(timestamp=timestamp), 101000, 120)
+            self.assertFalse(value['collecting'])
+            self.assertIsNone(value['metricQuality']['runCPU']['timestamp'])
+            json.dumps(value, allow_nan=False)
+
     def test_unconfigured_never_connects(self):
         config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
         store = SnapshotStore(config)

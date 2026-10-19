@@ -116,7 +116,7 @@ test('absolute CPU alarm is visible independently from trend warmup and expires 
 
 test('server alarm panel shows absolute value and active status without confusing trends or missing data', () => {
   const page = monitoring();
-  const html = vm.runInContext(`serverAlarmPanel({metrics:{runCPU:95,runTRD:180}}, {state:'critical',signals:[
+  const html = vm.runInContext(`serverAlarmPanel({sampleTime:Date.now(),metrics:{runCPU:95,runTRD:180}}, {state:'critical',signals:[
     {metric:'runCPU',kind:'absolute',state:'critical',description:'Limite ≥ 90 %'},
     {metric:'runTRD',state:'warning',description:'4 threads/min'},
     {metric:'runMemory',state:'unknown',description:'Sem dados'}
@@ -137,4 +137,36 @@ test('carousel has no dedicated pause button and respects global pause and serve
     page.intervals[0].callback();
     assert.equal(page.html(), initial);
   }
+});
+
+test('fresh real measurements remain visible during trend warmup and partial collection', () => {
+  const page = monitoring();
+  vm.runInContext(`
+    SERVERS[0].collecting = false;
+    SERVERS[0].sampleTime = null;
+    SERVERS[0].metrics.runCPU = 95;
+    SERVERS[0].metrics.runMemory = 62;
+    SERVERS[0].metricQuality = {
+      runCPU: {good:true,timestamp:Date.now()},
+      runMemory: {good:false,timestamp:Date.now()}
+    };
+    SERVERS[0].trends.forEach(t => {t.state = 30;});
+    renderFleet();
+  `, page.context);
+  assert.equal(vm.runInContext('visibleMetrics(SERVERS[0]).runCPU', page.context), 95);
+  assert.equal(vm.runInContext('visibleMetrics(SERVERS[0]).runMemory', page.context), null);
+  assert.match(page.html(), /95,0/);
+  vm.runInContext(`SERVERS[0].histories = {local:[],remote:[]}; renderDetail(SERVERS[0])`, page.context);
+  assert.match(page.html(), /95,0/);
+  assert.doesNotMatch(page.html(), /62,0/);
+});
+
+test('measurements expire individually and disappear when the API is unavailable', () => {
+  const page = monitoring();
+  vm.runInContext(`SERVERS[0].metricQuality = {runCPU:{good:true,timestamp:Date.now()-121000}}`, page.context);
+  assert.equal(vm.runInContext('currentMetric(SERVERS[0], "runCPU")', page.context), null);
+  vm.runInContext(`SERVERS[0].metricQuality.runCPU.timestamp = Date.now()+60000`, page.context);
+  assert.equal(vm.runInContext('currentMetric(SERVERS[0], "runCPU")', page.context), null);
+  vm.runInContext(`SERVERS[0].metricQuality.runCPU.timestamp = Date.now(); SERVERS[0].apiAvailable = false`, page.context);
+  assert.equal(vm.runInContext('currentMetric(SERVERS[0], "runCPU")', page.context), null);
 });

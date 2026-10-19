@@ -42,7 +42,8 @@ function normalizeStatus(payload) {
       absoluteIds.add(alarm.metric);
     }
     for (const kind of ['local', 'remote']) histories[kind] = (Array.isArray(server.histories?.[kind]) ? server.histories[kind] : []).filter(point => validTimestamp(point.timestamp) && ['entered', 'handled', 'discard'].every(key => Number.isFinite(point[key]) && point[key] >= 0) && point.discard <= 100).sort((a, b) => a.timestamp - b.timestamp).slice(-120);
-    return { id: server.id, name: String(server.name || server.id), site: String(server.site || ''), environment: String(server.environment || ''), role: String(server.role || ''), sampleTime: validTimestamp(server.sampleTime) ? server.sampleTime : null, collecting, metrics, histories, trends, absoluteAlarms, message: String(server.message || '') };
+    const metricQuality = Object.fromEntries(Object.keys(metrics).map(key => [key, { good: Number.isFinite(metrics[key]), timestamp: validTimestamp(server.metricQuality?.[key]?.timestamp) ? server.metricQuality[key].timestamp : null }]));
+    return { id: server.id, name: String(server.name || server.id), site: String(server.site || ''), environment: String(server.environment || ''), role: String(server.role || ''), sampleTime: validTimestamp(server.sampleTime) ? server.sampleTime : null, collecting, apiAvailable: true, metrics, metricQuality, histories, trends, absoluteAlarms, message: String(server.message || '') };
   });
   return { servers, stale, policy };
 }
@@ -67,7 +68,7 @@ function startDataSource(onUpdate, isPaused) {
         if (PI_DATA_STATE.simulated) PI_DATA_STATE.message = 'Dados simulados locais — sem leitura ou escrita PI';
         PI_DATA_STATE.lastSuccess = Date.now();
       } catch {
-        for (const server of SERVERS) { server.collecting = false; server.message = 'API PI indisponível'; }
+        for (const server of SERVERS) { server.collecting = false; server.apiAvailable = false; server.message = 'API PI indisponível'; }
         PI_DATA_STATE.status = 'unavailable';
         PI_DATA_STATE.message = 'API PI indisponível — sem dados atuais';
       } finally { clearTimeout(timeout); }
