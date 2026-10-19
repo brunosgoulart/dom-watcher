@@ -4,7 +4,7 @@ Monitoramento de servidores SCADA com coleta no PI Data Archive, alarmes de tend
 
 ## Operação
 
-A configuração operacional é `scada_api/config.toml`, mantida localmente e ignorada pelo Git. A estrutura de referência está em `scada_api/config.reference.toml`. Preencha os dados do ambiente antes de iniciar a coleta; sem configuração, a interface indica indisponibilidade.
+A configuração operacional é `scada_api/config.toml`, incluída no Git com `pidatapro`, AF SDK e as entradas dos três servidores COGCGPRO. Não contém credenciais e mantém a escrita desabilitada. A estrutura de referência está em `scada_api/config.reference.toml`. Confira SDK e permissões do ambiente antes de iniciar a coleta.
 
 ```powershell
 python -m pip install -r scada_api/requirements.txt

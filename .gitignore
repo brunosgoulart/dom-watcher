@@ -1,7 +1,6 @@
 .venv/
 .venv-afsdk/
 *.log
-/scada_api/config.toml
 __pycache__/
 *.py[cod]
 real_read_afsdk*.txt

@@ -15,7 +15,7 @@ O serviço monitora até sete servidores SCADA a partir de snapshots do PI Data 
 - `trends.py`: seis análises de elevação sustentada.
 - `absolute_alarms.py`: seis alarmes opcionais por limite superior.
 - `trend_output.py`: publicação autorizada, heartbeat e retentativas independentes por família de alarmes.
-- `config.toml`: configuração operacional local, fora do versionamento.
+- `config.toml`: configuração operacional versionada, sem credenciais, com AF SDK, `pidatapro` e os três servidores COGCGPRO.
 - `config.reference.toml`: referência de estrutura com sete posições; os endereços precisam corresponder ao ambiente.
 - `servidores_tags.csv`: catálogo de mapeamento de entradas e saídas de tendência.
 - `diagnose_pi.py`, `diagnose_afsdk.py`, `diagnose_runtime.py`: ferramentas de diagnóstico explícito.
@@ -26,7 +26,7 @@ A chegada das medições ao PI é responsabilidade do sistema SCADA existente e 
 
 ## Configuração operacional
 
-O serviço carrega `scada_api/config.toml` por padrão. É possível selecionar outro arquivo com `--config`. Não há fallback automático para a referência. Se o arquivo não existir, deve ser provisionado a partir de `config.reference.toml` e preenchido com os dados aprovados.
+O serviço carrega `scada_api/config.toml` por padrão. Esse arquivo agora acompanha o repositório, com o inventário aprovado e sem credenciais. É possível selecionar outro arquivo com `--config`. Não há fallback automático para a referência. Preserve alterações específicas do ambiente antes de atualizar o repositório; nunca inclua senhas ou segredos nesse arquivo.
 
 A configuração local e o perfil `config.cogcgpro.toml` possuem as entradas de COGCGPRO12, COGCGPRO34 e COGCGPRO56 mapeadas e usam o PI Data Archive `pidatapro`, confirmado pelo operador. O AF SDK ainda precisa estar instalado no caminho configurado; não há conexão real validada nesta estação.
 
@@ -197,7 +197,7 @@ python -m venv .venv
 & '.\.venv\Scripts\python.exe' -u scada_api/server.py --config scada_api/config.toml --port 8768
 ```
 
-Abra `http://127.0.0.1:8768/#overview`. Não iniciar uma segunda instância na mesma porta. Provisionar a configuração local antes de iniciar; o arquivo é ignorado pelo Git para preservar dados do ambiente. Nunca habilitar escrita automaticamente.
+Abra `http://127.0.0.1:8768/#overview`. Não iniciar uma segunda instância na mesma porta. O `config.toml` operacional acompanha o Git; confira o caminho da DLL e as permissões locais antes de iniciar. Nunca habilitar escrita automaticamente.
 
 Diagnóstico, executado somente sob demanda:
 
@@ -238,6 +238,8 @@ Node.js só é necessário para as verificações do frontend. As verificações
 Verificação do serviço: 56 verificações Python aprovadas; a integração HTTP local é exercitada sem acessar o PI. Verificação da apresentação em 18/10/2026: 14 verificações JavaScript aprovadas, incluindo painel acessível de informações da conexão e relógio no fuso de São Paulo e independente da pausa, símbolos de severidade, formato das linhas de alarme, distinção de tendência/limite e separação entre ativo e indisponível. Incluem a geração isolada dos três servidores e a rejeição da origem simulada pelo frontend operacional. Prévia na porta 8769 conferida no navegador com valores e alarmes absolutos/tendência. Comunicação e permissões de escrita foram preservadas. A configuração local foi renomeada sem alterar os parâmetros de conexão, consulta ou publicação; apenas os metadados do servidor foram padronizados.
 
 ## Pendências de implantação
+
+Distribuição do arquivo operacional em 19/10/2026: `config.toml` incluído no versionamento por solicitação do operador, removendo a necessidade de cópia manual após baixar o projeto. Contém somente os dados já aprovados no perfil COGCGPRO, sem credenciais. 65 verificações Python aprovadas, incluindo equivalência entre o arquivo padrão e o perfil; SDK simulado apenas nos testes. A ausência local da DLL AF SDK continua impedindo a validação de conexão real.
 
 Mapeamento de entradas em 19/10/2026: 64 verificações Python e 16 JavaScript aprovadas. Os novos casos conferem nomes e capitalização das 48 tags, leitura das três máquinas, ausência de saídas/limites presumidos e manutenção de métricas/históricos ausentes como indisponíveis. Os valores de teste usam um cliente isolado; não houve acesso ao PI. A configuração privada preservou os parâmetros globais e recebeu somente o inventário e os mapeamentos. A DLL AF SDK ainda não está disponível no caminho padrão e o PI Data Archive não foi informado.
 
