@@ -179,6 +179,7 @@ class SnapshotStore:
         self.trends = TrendEngine(config.get("trend"))
         self.publisher = TrendPublisher(config)
         self.absolute_publisher = TrendPublisher(config, "absoluteOutputs")
+        self.trend_history_stamps: dict[tuple[str, str], float] = {}
         self.snapshot = {
             "schemaVersion": 1, "source": config.get("piAdapter", "pi-sdk-com"), "serviceStatus": "starting",
             "staleSeconds": config["staleSeconds"], "generatedAt": None,
@@ -211,6 +212,25 @@ class SnapshotStore:
                     server["histories"][kind] = history[-120:]
             self.snapshot.update(servers=servers, serviceStatus=status, generatedAt=datetime.now(timezone.utc).isoformat())
 
+    def refresh_trends_from_pi(self, client: PIReadClient, servers: list) -> None:
+        if client.adapter != "af-sdk":
+            return
+        history_seconds = int((max(self.trends.slow_ms, self.trends.window_ms) + self.trends.reference_ms) / 1000)
+        interval_seconds = int(self.trends.interval_ms / 1000)
+        for server in servers:
+            for metric in TREND_METRICS:
+                tag = next((item["tags"].get(metric) for item in self.config["servers"] if item["id"] == server["id"]), None)
+                stamp = server.get("metricQuality", {}).get(metric, {}).get("timestamp")
+                history_key = (server["id"], metric)
+                if not tag or not isinstance(stamp, (int, float)) or not math.isfinite(stamp) or self.trend_history_stamps.get(history_key) == stamp:
+                    continue
+                try:
+                    end_ms = stamp - self.trends.interval_ms
+                    self.trends.seed_history(server["id"], metric, client.read_interpolated(tag, end_ms - history_seconds * 1000, end_ms, interval_seconds))
+                    self.trend_history_stamps[history_key] = stamp
+                except Exception:
+                    continue
+
     def poll(self) -> None:
         if not self.config.get("piServer", "").strip() or not any(s.get("tags") for s in self.config["servers"]):
             self.publish([empty_server(s, "Configure o PI Data Archive e as tags de leitura.") for s in self.config["servers"]], "not-configured")
@@ -233,6 +253,7 @@ class SnapshotStore:
                     client.connect()
                     now = time.time() * 1000
                     servers = [read_server(s, client, now, self.config["staleSeconds"]) for s in self.config["servers"]]
+                    self.refresh_trends_from_pi(client, servers)
                     self.publish(servers, "connected" if all(s["collecting"] for s in servers) else "degraded", client)
                 except Exception:
                     client.close()

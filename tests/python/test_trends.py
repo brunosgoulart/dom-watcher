@@ -40,16 +40,22 @@ class TrendTests(unittest.TestCase):
     def test_alarm_exactly_at_ten_minutes_without_reference(self):
         e = TrendEngine()
         for i in range(11):
-            r = self.point(e, i, 10 + i * .01)
+            r = self.point(e, i, 10 + i * .5)
             self.assertEqual(r["state"], 30 if i < 10 else 10)
         self.assertFalse(r["referenceReady"])
         self.assertEqual(r["riseDurationSeconds"], 600)
         self.assertEqual(r["pendingSamples"], 0)
 
+    def test_percentage_rise_below_half_point_per_minute_is_normal(self):
+        e = TrendEngine()
+        for i in range(11):
+            result = self.point(e, i, 10 + i * .49)
+        self.assertEqual(result["state"], 0)
+
     def test_habitual_rise_still_alarms(self):
         e = TrendEngine()
         for i in range(50):
-            r = self.point(e, i, 10 + i * .01)
+            r = self.point(e, i, 10 + i * .5)
         self.assertEqual(r["state"], 10)
         self.assertTrue(r["referenceReady"])
         self.assertAlmostEqual(r["score"], 0)

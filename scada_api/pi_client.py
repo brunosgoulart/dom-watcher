@@ -146,6 +146,43 @@ class PIReadClient:
             "status": status if status else ("Good" if good else "Bad"),
         }
 
+    def read_interpolated(self, tag: str, start_ms: float, end_ms: float, interval_seconds: int) -> list[dict[str, Any]]:
+        if self.adapter != "af-sdk":
+            raise RuntimeError("Historical interpolation is available only with the AF SDK adapter")
+        if not tag or tag.lower().startswith("af:") or tag.startswith("\\\\"):
+            raise ValueError("Configure an unqualified PI Point name")
+        if not all(isinstance(value, (int, float)) and math.isfinite(value) for value in (start_ms, end_ms)) or start_ms >= end_ms:
+            raise ValueError("Invalid historical time range")
+        if type(interval_seconds) is not int or interval_seconds <= 0:
+            raise ValueError("Invalid historical interval")
+        if self.server is None:
+            raise RuntimeError("AF SDK connection unavailable")
+        if tag not in self.points:
+            from OSIsoft.AF.PI import PIPoint
+            self.points[tag] = PIPoint.FindPIPoint(self.server, tag)
+        point = self.points[tag]
+        if point is None:
+            raise RuntimeError(f"AF point not found: {tag}")
+        from OSIsoft.AF.Time import AFTimeRange, AFTimeSpan
+        start = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        end = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        values = point.InterpolatedValues(AFTimeRange(start, end), AFTimeSpan.Parse(f"{interval_seconds}s"), None, False)
+        samples = []
+        for item in values:
+            raw = getattr(item, "Value", None)
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            timestamp = self._af_timestamp_to_ms(getattr(item, "Timestamp", None))
+            status = str(getattr(item, "Status", "Bad") or "Bad")
+            good = bool(getattr(item, "IsGood", False)) and math.isfinite(value) and timestamp is not None and math.isfinite(timestamp)
+            if any(token in status.lower() for token in ("bad", "questionable", "unavailable", "not good", "digital")):
+                good = False
+            if good:
+                samples.append({"value": value, "timestamp": timestamp, "good": True, "status": status or "Good"})
+        return samples
+
     def read(self, tag: str) -> dict[str, Any]:
         if not tag or tag.lower().startswith("af:") or tag.startswith("\\\\"):
             raise ValueError("Configure an unqualified PI Point name")

@@ -17,6 +17,7 @@ TREND_METRICS = {
     "runRemotePending": ("RemoteQueue", "Fila remota", 1.0),
 }
 STATE_LABELS = {0: "Normal", 10: "Atenção", 20: "Crítico", 30: "Histórico insuficiente", 40: "Dados inválidos"}
+PERCENTAGE_MIN_RISE_PER_MINUTE = 0.5
 
 
 def slope(points: list[tuple[float, float]]) -> float:
@@ -51,6 +52,19 @@ class TrendEngine:
         self.recovery = config.get("recoverySamples", 3)
         self.resolutions = {key: config.get("resolution", {}).get(key, item[2]) for key, item in TREND_METRICS.items()}
         self.states: dict[tuple[str, str], MetricState] = {}
+
+    def seed_history(self, server_id: str, metric: str, samples: list[dict]) -> None:
+        state = self.states.setdefault((server_id, metric), MetricState(points=deque(maxlen=self.history_capacity)))
+        points = []
+        for sample in samples:
+            value, stamp = sample.get("value"), sample.get("timestamp")
+            if (sample.get("good") and not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+                    and value >= 0 and not isinstance(stamp, bool) and isinstance(stamp, (int, float)) and math.isfinite(stamp)):
+                points.append((stamp, value))
+        state.points.clear()
+        state.anchors.clear()
+        for stamp, value in sorted(dict(points).items())[-self.history_capacity:]:
+            state.points.append((stamp, value))
 
     def covered(self, points: list, start: float, end: float, reference: bool = False) -> bool:
         minimum = math.ceil((end - start) / self.interval_ms * 0.9) if reference else max(3, math.ceil((end - start) / self.interval_ms) + 1)
@@ -143,7 +157,8 @@ class TrendEngine:
                 analyses[self.slow_ms] = slow
         selected = max(analyses.values(), key=lambda item: item["score"] if item["sustained"] and item["score"] is not None else -1)
         score = selected["score"]
-        candidate = (20 if score is not None and score >= self.critical else 10) if primary["sustained"] else 0
+        minimum_rise = PERCENTAGE_MIN_RISE_PER_MINUTE if metric in ("runCPU", "runMemory") else 0
+        candidate = (20 if score is not None and score >= self.critical else 10) if primary["sustained"] and primary["slope"] >= minimum_rise else 0
         if candidate == state.confirmed:
             state.streak, state.candidate = 0, None
         else:

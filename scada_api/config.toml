@@ -3,7 +3,7 @@
 piServer = "pidatapro"
 piAdapter = "af-sdk"
 pollSeconds = 30
-staleSeconds = 120
+staleSeconds = 600
 enableWrites = false
 
 [[servers]]

@@ -202,7 +202,7 @@ td { font-size: 22px; padding: 22px 18px; } td small { font-size: 17px; color: v
 .metric-grid { gap: 14px; } .metric-card, .status-card, .quality-card { padding: 22px; min-height: 190px; }
 .card-heading { font-size: 20px; color: #d6d2e2; } .metric-value { font-size: 42px; white-space: normal; overflow-wrap: anywhere; }
 .metric-value em, .metric-sub { font-size: 18px; } .metric-icon, .process-icon { font-size: 36px; }
-.mini-track { height: 8px; } .process-info { font-size: 24px; }
+.mini-track { height: 16px; } .process-info { font-size: 24px; }
 .process-info small, .status-banner, .status-bottom, .outline-label { font-size: 17px; }
 .quality-card>strong { font-size: 24px; } .quality-card>p, .quality-checks, dl div { font-size: 18px; }
 .quality-icon { width: 48px; height: 48px; line-height: 46px; font-size: 30px; }
@@ -266,7 +266,7 @@ td { font-size: 22px; padding: 22px 18px; } td small { font-size: 17px; color: v
   .overview-page .carousel-metrics .metric-value { font-size: clamp(24px, 2.2vw, 40px); }
   .overview-page .carousel-metrics .metric-icon { font-size: 28px; }
   .overview-page .carousel-metrics .metric-sub, .overview-page .carousel-metrics .metric-value em { font-size: clamp(12px, 1vw, 17px); }
-  .overview-page .carousel-metrics .mini-track { height: 6px; margin-top: 6px; }
+  .overview-page .carousel-metrics .mini-track { height: 16px; margin-top: 6px; }
   .overview-page .carousel-caption { font-size: 12px; margin-top: 10px; }
   .overview-page footer { padding: 12px 0; font-size: 12px; }
 }

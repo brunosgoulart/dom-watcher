@@ -1,0 +1,55 @@
+# Test config using the PI tags provided by the user and the validated AF SDK route.
+piServer = "PIDATAPRO"
+piAdapter = "af-sdk"
+piAfSdkDll = 'C:\Program Files (x86)\PIPC\AF\PublicAssemblies\4.0\OSIsoft.AFSDK.dll'
+pollSeconds = 30
+staleSeconds = 120
+enableWrites = false
+outputHeartbeatSeconds = 60
+writeRetrySeconds = 30
+
+[trend]
+measurementSeconds = 60
+windowSeconds = 600
+referenceSeconds = 1800
+memoryWindowSeconds = 900
+criticalScore = 6.0
+recoverySamples = 3
+
+[trend.resolution]
+runCPU = 0.1
+runMemory = 0.1
+runPVT = 1024.0
+runErrorsPerMinute = 0.1
+runLocalPending = 1.0
+runRemotePending = 1.0
+
+[[servers]]
+id = "pidata-pro"
+name = "PIDATA-PRO"
+site = "Produção"
+environment = "Produção"
+role = "Supervisão"
+
+[servers.tags]
+runCPU = "CSEO.COGCGPRO56.E3Run.CPU"
+runMemory = "CSEO.COGCGPRO56.E3Run.Memory"
+runPVT = "CSEO.COGCGPRO56.E3Run.PVT"
+runLocalPending = "CSEO.COGCGPRO56.E3Run.PendingEvents"
+runRemotePending = "CSEO.COGCGPRO56.E3Run.RemotePending"
+runErrorsPerMinute = "CSEO.COGCGPRO56.E3Run.ErrorsPerMinute"
+runOccupancy = "CSEO.COGCGPRO56.E3Run.Occupancy"
+serverCPU = "CSEO.COGCGPRO56.E3Server.CPU"
+serverHDL = "CSEO.COGCGPRO56.E3Server.HDL"
+runUptimeMinutes = "CSEO.COGCGPRO56.E3Run.UpTimeMinutes"
+localDiscardPercent = "CSEO.COGCGPRO56.E3Run.DiscardPercent"
+remoteDiscardPercent = "CSEO.COGCGPRO56.E3Run.RemoteDiscardPercent"
+localEnteredRate = "CSEO.COGCGPRO56.E3Run.EnteredEvents"
+localHandledRate = "CSEO.COGCGPRO56.E3Run.HandledEvents"
+remoteEnteredRate = "CSEO.COGCGPRO56.E3Run.RemoteEnteredPerMinute"
+remoteHandledRate = "CSEO.COGCGPRO56.E3Run.RemoteHandledPerMinute"
+runTRD = "CSEO.COGCGPRO56.E3Run.TRD"
+ioQueuePending = "CSEO.COGCGPRO56.ioQueue.Pending"
+ioQueueAvgDelay = "CSEO.COGCGPRO56.ioQueue.AvgDelay"
+driveCFreeMB = "CSEO.COGCGPRO56.FileRead"
+totalTime = "CSEO.COGCGPRO56.TotalTime"

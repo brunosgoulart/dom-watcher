@@ -33,7 +33,7 @@ function healthOf(server, now = Date.now()) {
     state: t.state === 20 ? 'critical' : t.state === 10 ? 'warning' : 'unknown',
     stateLabel: t.state === 30 ? 'Histórico' : t.state === 40 ? 'Sem dados' : t.stateLabel,
     title: t.metric === 'runTRD' ? 'Threads' : titles[t.metric],
-    description: t.state >= 30 ? t.reason : `${Number.isFinite(t.slope) ? (t.metric === 'runPVT' ? t.slope / 1024 : t.slope).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'} ${t.metric === 'runPVT' ? 'MiB/min' : ['runCPU', 'runMemory'].includes(t.metric) ? 'p.p./min' : t.metric === 'runErrorsPerMinute' ? 'erros/min²' : 'eventos/min'} · score ${Number.isFinite(t.score) ? t.score.toFixed(2) : '—'} · janela ${t.windowSeconds / 60} min · publicação ${t.writeStatus}`
+    description: t.state >= 30 ? t.reason : `${Number.isFinite(t.slope) ? (t.metric === 'runPVT' ? t.slope / 1024 : t.slope).toLocaleString('pt-BR', ['runCPU', 'runMemory'].includes(t.metric) ? { minimumFractionDigits: 1, maximumFractionDigits: 2 } : { maximumFractionDigits: 2 }) : '—'} ${t.metric === 'runPVT' ? 'MiB/min' : ['runCPU', 'runMemory'].includes(t.metric) ? 'p.p./min' : t.metric === 'runErrorsPerMinute' ? 'erros/min²' : 'eventos/min'} · score ${Number.isFinite(t.score) ? t.score.toFixed(2) : '—'} · janela ${t.windowSeconds / 60} min · publicação ${t.writeStatus}`
   }));
   if (server.trends.some(t => t.writeStatus === 'failed')) signals.push({ state: 'warning', title: 'Falha na publicação PI', description: 'Alarme calculado, mas escrita da tag de saída não confirmada.' });
   signals.push(...absoluteSignals);
