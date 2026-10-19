@@ -1,3 +1,7 @@
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / 'scada_api'))
+
 """Version: 1.3 | Date: 14/10/2026
 Changes: Tested AF session reuse, recovery after snapshot failure and failed-connect cleanup; isolated DLL validation from write-guard tests.
 """
@@ -29,6 +33,9 @@ class FakePI:
 
 class SnapshotTests(unittest.TestCase):
     def setUp(self):
+        dll_check = patch("server.os.path.exists", return_value=True)
+        dll_check.start()
+        self.addCleanup(dll_check.stop)
         self.item = {"id": "server1", "tags": {key: key for key in ESSENTIAL}}
 
     def test_sdk_dispatch_and_windows_open_without_credentials(self):
@@ -65,7 +72,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse(value["collecting"])
 
     def test_unconfigured_never_connects(self):
-        config = load_config(Path(__file__).with_name("config.example.toml"))
+        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
         store = SnapshotStore(config)
         store.poll()
         snapshot = store.get()
@@ -74,14 +81,14 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(all(not s["collecting"] for s in snapshot["servers"]))
 
     def test_malformed_tags_mapping_is_rejected(self):
-        config = load_config(Path(__file__).with_name("config.example.toml"))
+        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
         config["servers"][0]["tags"] = []
         with patch("server.tomllib.load", return_value=config):
             with self.assertRaises(ValueError):
-                load_config(Path(__file__).with_name("config.example.toml"))
+                load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
 
     def test_history_deduplication(self):
-        config = load_config(Path(__file__).with_name("config.example.toml"))
+        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
         store = SnapshotStore(config)
         servers = [read_server(s, FakePI(), 101000, 120) for s in config["servers"]]
         for s in servers:
@@ -93,16 +100,16 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(len(store.get()["servers"][0]["histories"]["local"]), 1)
 
     def test_http_status_and_no_write(self):
-        config = load_config(Path(__file__).with_name("config.example.toml"))
+        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
         store = SnapshotStore(config)
         store.poll()
-        http = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store, Path(__file__).resolve().parents[1] / "web"))
+        http = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store, Path(__file__).resolve().parents[2] / "web"))
         thread = threading.Thread(target=http.serve_forever, daemon=True)
         thread.start()
         url = f"http://127.0.0.1:{http.server_port}/api/v1/status"
         try:
             with urlopen(url) as response:
-                self.assertEqual(json.load(response)["source"], "pi-sdk-com")
+                self.assertEqual(json.load(response)["source"], config["piAdapter"])
             with self.assertRaises(HTTPError) as error:
                 urlopen(Request(url, data=b"{}", method="POST"))
             self.assertEqual(error.exception.code, 501)
@@ -111,13 +118,18 @@ class SnapshotTests(unittest.TestCase):
             http.server_close()
             thread.join()
 
+    def test_missing_af_sdk_dll_is_rejected(self):
+        with patch("server.os.path.exists", return_value=False):
+            with self.assertRaises(FileNotFoundError):
+                load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+
     def test_af_sdk_rejects_writes_at_initialization(self):
-        config = load_config(Path(__file__).with_name("config.example.toml"))
+        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
         config["piAdapter"] = "af-sdk"
         config["enableWrites"] = True
         with patch("server.tomllib.load", return_value=config), patch("server.os.path.exists", return_value=True):
             with self.assertRaisesRegex(ValueError, "AF SDK.*read-only|enableWrites.*af-sdk|write.*disabled"):
-                load_config(Path(__file__).with_name("config.example.toml"))
+                load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
 
     def test_af_sdk_timestamp_utc_ms_and_quality(self):
         class FakeDateTime:

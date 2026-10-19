@@ -6,6 +6,7 @@ intended solely for reviewing the web interface before real tag mappings exist.
 from __future__ import annotations
 
 import argparse
+import sys
 import math
 import threading
 import time
@@ -13,7 +14,9 @@ from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scada_api'))
 from server import METRICS, SnapshotStore, make_handler
+from absolute_alarms import evaluate_absolute
 
 
 SIMULATED_METRICS = (
@@ -28,7 +31,7 @@ PROFILES = (
         "id": "COGCGPRO12", "name": "COGCGPRO12", "site": "Simulação",
         "environment": "Prévia local", "role": "Threads em elevação", "trend": {"runTRD": 10},
         "metrics": {
-            "runCPU": 34.8, "runMemory": 61.5, "runPVT": 821_248, "runTRD": 126,
+            "runCPU": 95.0, "runMemory": 61.5, "runPVT": 821_248, "runTRD": 126,
             "runLocalPending": 4, "runRemotePending": 2, "runOccupancy": 43.2,
             "runErrorsPerMinute": 0.2, "serverCPU": 18.4, "serverHDL": 874,
             "ioQueuePending": 1, "ioQueueAvgDelay": 3.4, "totalTime": 0.21,
@@ -116,6 +119,11 @@ def simulated_servers(now_ms: float | None = None) -> list[dict]:
             "trends": [trend(metric, profile["trend"].get(metric, 0), now_ms) for metric in TREND_LABELS],
             "message": "Dados simulados localmente; não há leitura ou escrita no PI.",
         })
+    for server in servers:
+        server["absoluteAlarms"] = evaluate_absolute(
+            {"absoluteLimits": {"runCPU": 90.0, "runMemory": 90.0}}, server, now_ms, 120)
+        for alarm in server["absoluteAlarms"]:
+            alarm["writeStatus"] = "disabled"
     return servers
 
 
@@ -132,7 +140,7 @@ def publish_simulation(store: SnapshotStore) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the local simulated SCADA dashboard preview.")
-    parser.add_argument("--port", type=int, default=8768)
+    parser.add_argument("--port", type=int, default=8769)
     args = parser.parse_args()
     config = {
         "piAdapter": "simulated", "staleSeconds": 120, "enableWrites": False,
@@ -140,7 +148,25 @@ def main() -> None:
     }
     store = SnapshotStore(config)
     worker = threading.Thread(target=publish_simulation, args=(store,), name="simulated-pi-preview", daemon=True)
-    http_server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, Path(__file__).resolve().parents[1] / "web"))
+    base_handler = make_handler(store, Path(__file__).resolve().parents[1] / "web")
+
+    class PreviewHandler(base_handler):
+        def do_GET(self):
+            if self.path.split("?")[0] == "/pi-config.js":
+                content = b"const PI_API_CONFIG = Object.freeze({statusUrl:'/api/v1/status',refreshMs:3000,timeoutMs:8000,allowSimulatedData:true});"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            super().do_GET()
+
+    class PreviewServer(ThreadingHTTPServer):
+        allow_reuse_address = False
+
+    http_server = PreviewServer(("127.0.0.1", args.port), PreviewHandler)
     worker.start()
     print(f"Simulated SCADA preview: http://127.0.0.1:{args.port}/", flush=True)
     try:

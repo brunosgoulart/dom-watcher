@@ -18,6 +18,7 @@ from pathlib import Path
 from pi_client import PIReadClient
 from trends import TREND_METRICS, TrendEngine
 from trend_output import TrendPublisher
+from absolute_alarms import evaluate_absolute, validate_absolute
 
 METRICS = (
     "runCPU", "runMemory", "runPVT", "runTRD", "runLocalPending",
@@ -74,6 +75,8 @@ def load_config(path: Path) -> dict:
     inputs = {tag.casefold() for s in servers for tag in s.get("tags", {}).values()}
     outputs = []
     for server in servers:
+        validate_absolute(server)
+        outputs.extend(tag.casefold() for tag in server.get("absoluteOutputs", {}).values() if tag)
         mapping = server.get("outputs", {})
         if not isinstance(mapping, dict):
             raise ValueError("outputs must map metric names to PI Points")
@@ -174,6 +177,7 @@ class SnapshotStore:
         self.stop = threading.Event()
         self.trends = TrendEngine(config.get("trend"))
         self.publisher = TrendPublisher(config)
+        self.absolute_publisher = TrendPublisher(config, "absoluteOutputs")
         self.snapshot = {
             "schemaVersion": 1, "source": config.get("piAdapter", "pi-sdk-com"), "serviceStatus": "starting",
             "staleSeconds": config["staleSeconds"], "generatedAt": None,
@@ -190,6 +194,9 @@ class SnapshotStore:
         for server in servers:
             server["trends"] = self.trends.evaluate_server(server, now, self.config["staleSeconds"])
             self.publisher.publish(server["id"], server["trends"], client, now)
+            item = next(item for item in self.config["servers"] if item["id"] == server["id"])
+            server["absoluteAlarms"] = evaluate_absolute(item, server, now, self.config["staleSeconds"])
+            self.absolute_publisher.publish(server["id"], server["absoluteAlarms"], client, now)
         with self.lock:
             previous = {s["id"]: s for s in self.snapshot["servers"]}
             for server in servers:
@@ -207,7 +214,7 @@ class SnapshotStore:
         if not self.config.get("piServer", "").strip() or not any(s.get("tags") for s in self.config["servers"]):
             self.publish([empty_server(s, "Configure o PI Data Archive e as tags de leitura.") for s in self.config["servers"]], "not-configured")
             return
-        outputs = [tag for s in self.config["servers"] for tag in s.get("outputs", {}).values()] if self.config.get("enableWrites", False) else []
+        outputs = [tag for s in self.config["servers"] for group in ("outputs", "absoluteOutputs") for tag in s.get(group, {}).values() if tag] if self.config.get("enableWrites", False) else []
         client = PIReadClient(
             self.config["piServer"],
             allowed_outputs=outputs,
@@ -273,7 +280,7 @@ def make_handler(store: SnapshotStore, web_root: Path):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.example.toml"))
+    parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.toml"))
     parser.add_argument("--port", type=int, default=8767)
     args = parser.parse_args()
     config = load_config(args.config)

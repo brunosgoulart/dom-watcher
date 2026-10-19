@@ -1,5 +1,5 @@
 # Version: 1.5 | Date: 15/10/2026
-# Changes: Replaced empty server tags with a concrete seven-server template and explicit input/output point mapping.
+# Changes: Replaced empty server tags with a seven-server configuration reference and explicit input/output point mapping.
 piServer = ""
 piAdapter = "af-sdk"
 piAfSdkDll = "C:\\Program Files (x86)\\PIPC\\AF\\PublicAssemblies\\4.0\\OSIsoft.AFSDK.dll"
@@ -65,6 +65,25 @@ runErrorsPerMinute = "CSEO.E3-SP-01.SCADA.Trend.ScriptErrors.State"
 runLocalPending = "CSEO.E3-SP-01.SCADA.Trend.LocalQueue.State"
 runRemotePending = "CSEO.E3-SP-01.SCADA.Trend.RemoteQueue.State"
 
+# Optional: number enables the limit; empty string disables it. Format: runCPU = 90.0
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
+# Separate output namespace. Format: CSEO.E3-SP-01.SCADA.Absolute.CPU.State
+# Empty output means no PI publication for that metric.
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
 [[servers]]
 id = "e3-sp-02"
 name = "E3-SP-02"
@@ -103,6 +122,25 @@ runPVT = "CSEO.E3-SP-02.SCADA.Trend.PrivateMemory.State"
 runErrorsPerMinute = "CSEO.E3-SP-02.SCADA.Trend.ScriptErrors.State"
 runLocalPending = "CSEO.E3-SP-02.SCADA.Trend.LocalQueue.State"
 runRemotePending = "CSEO.E3-SP-02.SCADA.Trend.RemoteQueue.State"
+
+# Optional: number enables the limit; empty string disables it. Format: runCPU = 90.0
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
+# Separate output namespace. Format: CSEO.E3-SP-01.SCADA.Absolute.CPU.State
+# Empty output means no PI publication for that metric.
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
 
 [[servers]]
 id = "e3-rj-01"
@@ -143,6 +181,25 @@ runErrorsPerMinute = "CSEO.E3-RJ-01.SCADA.Trend.ScriptErrors.State"
 runLocalPending = "CSEO.E3-RJ-01.SCADA.Trend.LocalQueue.State"
 runRemotePending = "CSEO.E3-RJ-01.SCADA.Trend.RemoteQueue.State"
 
+# Optional: number enables the limit; empty string disables it. Format: runCPU = 90.0
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
+# Separate output namespace. Format: CSEO.E3-SP-01.SCADA.Absolute.CPU.State
+# Empty output means no PI publication for that metric.
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
 [[servers]]
 id = "e3-rj-02"
 name = "E3-RJ-02"
@@ -181,6 +238,25 @@ runPVT = "CSEO.E3-RJ-02.SCADA.Trend.PrivateMemory.State"
 runErrorsPerMinute = "CSEO.E3-RJ-02.SCADA.Trend.ScriptErrors.State"
 runLocalPending = "CSEO.E3-RJ-02.SCADA.Trend.LocalQueue.State"
 runRemotePending = "CSEO.E3-RJ-02.SCADA.Trend.RemoteQueue.State"
+
+# Optional: number enables the limit; empty string disables it. Format: runCPU = 90.0
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
+# Separate output namespace. Format: CSEO.E3-SP-01.SCADA.Absolute.CPU.State
+# Empty output means no PI publication for that metric.
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
 
 [[servers]]
 id = "e3-bh-01"
@@ -221,6 +297,25 @@ runErrorsPerMinute = "CSEO.E3-BH-01.SCADA.Trend.ScriptErrors.State"
 runLocalPending = "CSEO.E3-BH-01.SCADA.Trend.LocalQueue.State"
 runRemotePending = "CSEO.E3-BH-01.SCADA.Trend.RemoteQueue.State"
 
+# Optional: number enables the limit; empty string disables it. Format: runCPU = 90.0
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
+# Separate output namespace. Format: CSEO.E3-SP-01.SCADA.Absolute.CPU.State
+# Empty output means no PI publication for that metric.
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
 [[servers]]
 id = "e3-bh-02"
 name = "E3-BH-02"
@@ -260,41 +355,79 @@ runErrorsPerMinute = "CSEO.E3-BH-02.SCADA.Trend.ScriptErrors.State"
 runLocalPending = "CSEO.E3-BH-02.SCADA.Trend.LocalQueue.State"
 runRemotePending = "CSEO.E3-BH-02.SCADA.Trend.RemoteQueue.State"
 
+# Optional: number enables the limit; empty string disables it. Format: runCPU = 90.0
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
+# Separate output namespace. Format: CSEO.E3-SP-01.SCADA.Absolute.CPU.State
+# Empty output means no PI publication for that metric.
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
 [[servers]]
-id = "e3-lab-01"
-name = "E3-LAB-01"
-site = "Laboratório"
-environment = "Homologação"
-role = "Testes de aplicação"
+id = "e3-07"
+name = "E3-07"
+site = "Unidade operacional"
+environment = "Produção"
+role = "Supervisão"
 
 [servers.tags]
-runCPU = "CSEO.E3-LAB-01.E3Run.CPU"
-runMemory = "CSEO.E3-LAB-01.E3Run.Memory"
-runPVT = "CSEO.E3-LAB-01.E3Run.PrivateMemory"
-runTRD = "CSEO.E3-LAB-01.E3Run.Threads"
-runLocalPending = "CSEO.E3-LAB-01.E3Run.LocalPending"
-runRemotePending = "CSEO.E3-LAB-01.E3Run.RemotePending"
-runOccupancy = "CSEO.E3-LAB-01.E3Run.Occupancy"
-runErrorsPerMinute = "CSEO.E3-LAB-01.E3Run.ErrorsPerMinute"
-serverCPU = "CSEO.E3-LAB-01.E3Server.CPU"
-serverHDL = "CSEO.E3-LAB-01.E3Server.Handles"
-driveCFreeMB = "CSEO.E3-LAB-01.Disk.CFreeMB"
-ioQueuePending = "CSEO.E3-LAB-01.IoQueue.Pending"
-ioQueueAvgDelay = "CSEO.E3-LAB-01.IoQueue.AvgDelay"
-etlFileSizeMB = "CSEO.E3-LAB-01.Etl.FileSizeMB"
-totalTime = "CSEO.E3-LAB-01.Etl.TotalTime"
-runUptimeMinutes = "CSEO.E3-LAB-01.E3Run.UptimeMinutes"
-localEnteredRate = "CSEO.E3-LAB-01.Queue.LocalEnteredRate"
-localHandledRate = "CSEO.E3-LAB-01.Queue.LocalHandledRate"
-localDiscardPercent = "CSEO.E3-LAB-01.Queue.LocalDiscardPercent"
-remoteEnteredRate = "CSEO.E3-LAB-01.Queue.RemoteEnteredRate"
-remoteHandledRate = "CSEO.E3-LAB-01.Queue.RemoteHandledRate"
-remoteDiscardPercent = "CSEO.E3-LAB-01.Queue.RemoteDiscardPercent"
+runCPU = "CSEO.E3-07.E3Run.CPU"
+runMemory = "CSEO.E3-07.E3Run.Memory"
+runPVT = "CSEO.E3-07.E3Run.PrivateMemory"
+runTRD = "CSEO.E3-07.E3Run.Threads"
+runLocalPending = "CSEO.E3-07.E3Run.LocalPending"
+runRemotePending = "CSEO.E3-07.E3Run.RemotePending"
+runOccupancy = "CSEO.E3-07.E3Run.Occupancy"
+runErrorsPerMinute = "CSEO.E3-07.E3Run.ErrorsPerMinute"
+serverCPU = "CSEO.E3-07.E3Server.CPU"
+serverHDL = "CSEO.E3-07.E3Server.Handles"
+driveCFreeMB = "CSEO.E3-07.Disk.CFreeMB"
+ioQueuePending = "CSEO.E3-07.IoQueue.Pending"
+ioQueueAvgDelay = "CSEO.E3-07.IoQueue.AvgDelay"
+etlFileSizeMB = "CSEO.E3-07.Etl.FileSizeMB"
+totalTime = "CSEO.E3-07.Etl.TotalTime"
+runUptimeMinutes = "CSEO.E3-07.E3Run.UptimeMinutes"
+localEnteredRate = "CSEO.E3-07.Queue.LocalEnteredRate"
+localHandledRate = "CSEO.E3-07.Queue.LocalHandledRate"
+localDiscardPercent = "CSEO.E3-07.Queue.LocalDiscardPercent"
+remoteEnteredRate = "CSEO.E3-07.Queue.RemoteEnteredRate"
+remoteHandledRate = "CSEO.E3-07.Queue.RemoteHandledRate"
+remoteDiscardPercent = "CSEO.E3-07.Queue.RemoteDiscardPercent"
 
 [servers.outputs]
-runCPU = "CSEO.E3-LAB-01.SCADA.Trend.CPU.State"
-runMemory = "CSEO.E3-LAB-01.SCADA.Trend.RAM.State"
-runPVT = "CSEO.E3-LAB-01.SCADA.Trend.PrivateMemory.State"
-runErrorsPerMinute = "CSEO.E3-LAB-01.SCADA.Trend.ScriptErrors.State"
-runLocalPending = "CSEO.E3-LAB-01.SCADA.Trend.LocalQueue.State"
-runRemotePending = "CSEO.E3-LAB-01.SCADA.Trend.RemoteQueue.State"
+runCPU = "CSEO.E3-07.SCADA.Trend.CPU.State"
+runMemory = "CSEO.E3-07.SCADA.Trend.RAM.State"
+runPVT = "CSEO.E3-07.SCADA.Trend.PrivateMemory.State"
+runErrorsPerMinute = "CSEO.E3-07.SCADA.Trend.ScriptErrors.State"
+runLocalPending = "CSEO.E3-07.SCADA.Trend.LocalQueue.State"
+runRemotePending = "CSEO.E3-07.SCADA.Trend.RemoteQueue.State"
+
+# Optional: number enables the limit; empty string disables it. Format: runCPU = 90.0
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
+# Separate output namespace. Format: CSEO.E3-SP-01.SCADA.Absolute.CPU.State
+# Empty output means no PI publication for that metric.
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""

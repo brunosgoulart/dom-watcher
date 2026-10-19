@@ -2,12 +2,25 @@
 Changes: Classified server health and radar signals using trend states, insufficient history and output write failures. */
 'use strict';
 const HEALTH_STATES = {
-  healthy: { label: 'Saudável', priority: 3 }, warning: { label: 'Atenção', priority: 1 },
+  healthy: { label: 'Sem alarmes ativos', priority: 3 }, warning: { label: 'Atenção', priority: 1 },
   critical: { label: 'Crítico', priority: 0 }, unknown: { label: 'Sem dados recentes', priority: 2 }
 };
-let HEALTH_LIMITS = { staleSeconds: 120, cpuWarning: 75, cpuCritical: 90, memoryWarning: 80, memoryCritical: 90, privateWarningKB: 700 * 1024, privateCriticalKB: 900 * 1024, errorsCritical: 5, pendingWarning: 1000 };
+let HEALTH_LIMITS = { staleSeconds: 120 };
 function healthOf(server, now = Date.now()) {
-  const unknown = message => ({ state: 'unknown', alerts: [message], signals: [{ state: 'unknown', title: 'Coleta sem dados válidos', description: message }] });
+  const absoluteSignals = (server.absoluteAlarms || []).flatMap(alarm => {
+    const valid = Number.isFinite(server.metrics?.[alarm.metric]) && Number.isFinite(alarm.timestamp) && now - alarm.timestamp >= 0 && now - alarm.timestamp <= HEALTH_LIMITS.staleSeconds * 1000;
+    const state = valid ? alarm.state : 40;
+    const failure = alarm.writeStatus === 'failed' ? [{ state: 'warning', title: 'Falha na publicação PI', description: 'Escrita do alarme absoluto não confirmada.' }] : [];
+    if (state === 0) return failure;
+    const units = { runCPU: '%', runMemory: '%', runPVT: 'KiB', runErrorsPerMinute: 'erros/min', runLocalPending: 'eventos', runRemotePending: 'eventos' };
+    const names = { runCPU: 'CPU', runMemory: 'RAM', runPVT: 'memória privada', runErrorsPerMinute: 'erros', runLocalPending: 'fila local', runRemotePending: 'fila remota' };
+    const signal = { metric: alarm.metric, kind: 'absolute', state: state === 20 ? 'critical' : 'unknown', stateLabel: state === 20 ? 'Limite atingido' : 'Sem dados', title: `Limite absoluto de ${names[alarm.metric]}`, description: state === 40 ? 'Limite absoluto: sem medição válida recente.' : `Limite ≥ ${alarm.limit.toLocaleString('pt-BR')} ${units[alarm.metric]}` };
+    return [signal, ...failure];
+  });
+  const unknown = message => {
+    const signals = [...absoluteSignals, { state: 'unknown', title: 'Coleta sem dados válidos', description: message }].sort((a, b) => HEALTH_STATES[a.state].priority - HEALTH_STATES[b.state].priority);
+    return { state: signals[0].state, alerts: signals.map(signal => `${signal.title}: ${signal.description}`), signals };
+  };
   if (!Number.isFinite(server.sampleTime) || now - server.sampleTime > HEALTH_LIMITS.staleSeconds * 1000 || server.sampleTime > now || !server.collecting) {
     return unknown('Coleta sem dados recentes. O estado operacional não pode ser confirmado.');
   }
@@ -23,6 +36,7 @@ function healthOf(server, now = Date.now()) {
     description: t.state >= 30 ? t.reason : `${Number.isFinite(t.slope) ? (t.metric === 'runPVT' ? t.slope / 1024 : t.slope).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'} ${t.metric === 'runPVT' ? 'MiB/min' : ['runCPU', 'runMemory'].includes(t.metric) ? 'p.p./min' : t.metric === 'runErrorsPerMinute' ? 'erros/min²' : 'eventos/min'} · score ${Number.isFinite(t.score) ? t.score.toFixed(2) : '—'} · janela ${t.windowSeconds / 60} min · publicação ${t.writeStatus}`
   }));
   if (server.trends.some(t => t.writeStatus === 'failed')) signals.push({ state: 'warning', title: 'Falha na publicação PI', description: 'Alarme calculado, mas escrita da tag de saída não confirmada.' });
+  signals.push(...absoluteSignals);
   for (const signal of signals) {
     if (signal.metric === 'runTRD') signal.description = signal.description.replace('eventos/min', 'threads/min');
     if (['runCPU', 'runMemory'].includes(signal.metric)) {

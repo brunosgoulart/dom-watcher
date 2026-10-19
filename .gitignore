@@ -1,12 +1,12 @@
 .venv/
 .venv-afsdk/
 *.log
-config.pi-test.toml
+/scada_api/config.toml
 __pycache__/
 *.py[cod]
 real_read_afsdk*.txt
 afsdk_runtime_debug.txt
-afsdk_test.txt
+/afsdk_*.txt
 out.txt
 verify.txt
 

@@ -1,200 +1,231 @@
-# README
+# Runtime Monitor
 
-Atualizado em: 16/10/2026.
+Atualizado em: 18/10/2026.
 
-## Regra obrigatória de manutenção para IAs e desenvolvedores
+## Manutenção
 
-Toda IA ou pessoa que alterar o código desta solução deverá, na mesma entrega:
+Toda alteração deve manter este documento coerente com o código, atualizar as pendências e registrar as verificações executadas. Distinguir validação automatizada de validação no ambiente PI. Não declarar a implantação concluída enquanto houver requisitos de comissionamento pendentes. Não habilitar escrita nem alterar os parâmetros de comunicação sem autorização.
 
-1. Revisar e atualizar a descrição do funcionamento neste README quando a alteração modificar o comportamento, a arquitetura, as configurações, as entradas, as saídas ou os limites do sistema.
-2. Revisar e atualizar a lista de pendências: marcar como concluído somente o que tiver sido efetivamente implementado e verificado, acrescentar novas pendências e manter explícitas as limitações ainda existentes.
-3. Distinguir implementação, teste offline e validação em ambiente real. Testes com mocks não comprovam conexão ou publicação no PI de produção.
-4. Atualizar a data deste documento e informar os testes realizados e as verificações que não puderam ser executadas.
-5. Não afirmar que a solução está pronta para produção enquanto houver pendências obrigatórias de comissionamento.
+## Arquitetura
 
-Este documento deve refletir o código atual, não apenas propostas. Não contém histórico de versões. O projeto `must-processor` é referência somente de leitura e não deve ser alterado neste trabalho.
+O serviço monitora até sete servidores SCADA a partir de snapshots do PI Data Archive. Uma thread de aquisição mantém um cache compartilhado com métricas, qualidade, históricos de filas e alarmes. O navegador consulta o cache; abrir mais abas não aumenta as leituras PI.
 
-## Escopo e estado atual
+- `server.py`: configuração, aquisição, cache e API HTTP.
+- `pi_client.py`: adaptadores AF SDK e PI SDK COM.
+- `trends.py`: seis análises de elevação sustentada.
+- `absolute_alarms.py`: seis alarmes opcionais por limite superior.
+- `trend_output.py`: publicação autorizada, heartbeat e retentativas independentes por família de alarmes.
+- `config.toml`: configuração operacional local, fora do versionamento.
+- `config.reference.toml`: referência de estrutura com sete posições; os endereços precisam corresponder ao ambiente.
+- `servidores_tags.csv`: catálogo de mapeamento de entradas e saídas de tendência.
+- `diagnose_pi.py`, `diagnose_afsdk.py`, `diagnose_runtime.py`: ferramentas de diagnóstico explícito.
+- `../web/`: interface estática.
+- `../tests/`: verificações automatizadas, separadas do código servido ao navegador.
 
-A solução monitora até sete servidores SCADA, lê medições do PI Data Archive, calcula alarmes de tendência, disponibiliza os resultados em uma API local e os exibe em uma página web. Também pode publicar os estados dos alarmes em tags de saída do PI.
+A chegada das medições ao PI é responsabilidade do sistema SCADA existente e não integra esta aplicação. Não há descoberta de tags, PI Web API, navegação AF, leitura de arquivos de log ou geração de medições na aplicação.
 
-A chegada das medições ao PI via SCADA já está implementada externamente e não é uma pendência desta solução. A coleta anterior à chegada ao PI está fora deste documento.
+## Configuração operacional
 
-A implementação está disponível para integração e comissionamento e foi validada no ambiente Windows atual usando o adaptador AF SDK do PI. Na configuração de exemplo, `piServer` está vazio, os mapeamentos de entrada estão vazios e `enableWrites=false`. Portanto, essa configuração não conecta ao PI nem publica alarmes.
+O serviço carrega `scada_api/config.toml` por padrão. É possível selecionar outro arquivo com `--config`. Não há fallback automático para a referência. Se o arquivo não existir, deve ser provisionado a partir de `config.reference.toml` e preenchido com os dados aprovados.
 
-## Componentes
+A configuração local desta estação ainda está sem PI Data Archive e sem entradas mapeadas. A aplicação deve indicar essa condição, sem apresentar valores inventados.
 
-- `../web/`: front-end estático em HTML, CSS e JavaScript, sem login.
-- `server.py`: configuração, aquisição em segundo plano, cache e API HTTP.
-- `pi_client.py`: conexão PI SDK COM compatível e rota AF SDK via pythonnet/netfx, leitura de snapshots e escrita restrita dos estados.
-- `trends.py`: cálculo das tendências e estados por métrica e servidor.
-- `trend_output.py`: publicação dos estados, heartbeat e retentativas.
-- `simulated_preview.py`: servidor local de prévia visual com dados sintéticos, sem acesso ao PI.
-- `config.example.toml`: exemplo de configuração com sete posições e nomes ilustrativos.
-- `test_server.py` e `test_trends.py`: testes offline.
+Parâmetros globais:
 
-Este serviço é independente da aplicação analítica em `../app/`. Não utiliza o adaptador AF SDK dessa aplicação, SQLite ou modelos de machine learning.
+| Parâmetro | Uso |
+|---|---|
+| `piServer` | Nome explícito do PI Data Archive |
+| `piAdapter` | `af-sdk` ou `pi-sdk-com`, sem fallback |
+| `piAfSdkDll` | Caminho da DLL AF SDK |
+| `pollSeconds` | Consulta PI; padrão 30 s, intervalo 5–3600 s |
+| `staleSeconds` | Validade da medição; padrão 120 s, intervalo 5–86400 s |
+| `enableWrites` | Autoriza publicação; padrão `false` |
+| `outputHeartbeatSeconds` | Republicação de estado estável; padrão 60 s |
+| `writeRetrySeconds` | Retentativa de publicação; padrão 30 s |
 
-## Funcionamento do sistema
+Heartbeat e retentativa aceitam 5–3600 segundos. Reinicie o serviço após qualquer alteração no TOML. A autenticação usa a conta Windows do processo; não há senha na configuração.
 
-### 1. Conexão e leitura
+Cada `[[servers]]` possui `id` único e seguro para URL, `name`, `site`, `environment`, `role` e os mapeamentos abaixo. As tabelas de cada servidor pertencem ao último `[[servers]]`; não duplicar uma tabela no mesmo servidor.
 
-O serviço aceita seleção explícita entre `pi-sdk-com` e `af-sdk`, sem fallback automático. O teste real de uma tag relatado em 14/10/2026 utilizou AF SDK via `pythonnet`, runtime `netfx` e `OSIsoft.AFSDK.dll`, com `PIServer.FindPIServer(...)` e `Connect()`. Esse teste não representa comissionamento completo do serviço ou do painel. O modo AF SDK reutiliza a sessão e o cache de PIPoints entre coletas; uma exceção de leitura do snapshot descarta a sessão para reconectar no próximo ciclo. Falhas de localização de uma tag continuam isoladas dessa sessão.
+### Entradas: [servers.tags]
 
-A autenticação usa a identidade Windows do processo. A conexão é direta ao PI Data Archive e a PIPoints; não utiliza PI Web API nem navegação em elementos do AF/PI System Explorer. Os nomes das tags precisam ser mapeados explicitamente, sem descoberta automática.
+Somente nomes explícitos de PI Points são aceitos. Configure apenas as entradas existentes.
 
-Uma única thread executa as chamadas ao adaptador PI. A inicialização COM ocorre somente no modo `pi-sdk-com`. Ela consulta os snapshots a cada 30 segundos no padrão. As medições de origem possuem cadência de 60 segundos; leituras repetidas de um mesmo timestamp não contam como novas medições.
+```text
+runCPU, runMemory, runPVT, runTRD
+runLocalPending, runRemotePending
+runOccupancy, runErrorsPerMinute
+serverCPU, serverHDL
+driveCFreeMB, etlFileSizeMB
+ioQueuePending, ioQueueAvgDelay
+totalTime, runUptimeMinutes
+localEnteredRate, localHandledRate, localDiscardPercent
+remoteEnteredRate, remoteHandledRate, remoteDiscardPercent
+```
 
-São suportadas 22 métricas: CPU, RAM, memória privada, threads, filas local/remota, ocupação, erros por minuto, CPU do servidor, handles, espaço livre em disco, fila e atraso de E/S, tamanho do arquivo informado pela tag, tempo de execução, uptime e taxas de entrada/tratamento/descarte das filas. Apenas as tags configuradas são lidas. O serviço não lê arquivos locais nem calcula taxas a partir de contadores brutos.
+São 22 entradas suportadas. CPU, RAM, erros/minuto e as duas filas pendentes são essenciais para `collecting=true`. Memória privada é necessária para completar as seis tendências. Memória privada é esperada em KiB; erros e fluxos já devem chegar como taxas por minuto. O serviço não transforma contadores brutos em taxas.
 
-### 2. Qualidade das medições
+Valores ausentes, ruins, questionáveis, booleanos, não numéricos, não finitos, negativos, futuros ou antigos são indisponíveis, nunca zero. Percentuais devem estar entre 0 e 100. O timestamp geral é o mais antigo das entradas essenciais. Falhas são isoladas por métrica; uma falha de conexão não confirma normalidade.
 
-Valores ausentes, ruins, questionáveis, booleanos, não numéricos, não finitos, negativos, futuros ou antigos são tratados como indisponíveis, nunca como zero. Percentuais devem estar entre 0 e 100. A idade máxima padrão é 120 segundos. A configuração também é rejeitada na inicialização quando `tags` não for um mapeamento de métricas para nomes explícitos de PI Points.
+O AF SDK usa `pythonnet`, runtime `netfx`, `PIServer.FindPIServer`, `Connect` e snapshots de PIPoints. Reutiliza sessão/cache e reconecta após falha de snapshot. O COM usa uma thread própria com inicialização COM. Chamadas nativas não possuem timeout cancelável.
 
-A validade e os cálculos usam os timestamps PI das medições, não o horário de consulta. CPU, RAM, erros por minuto e as duas filas pendentes são essenciais para confirmar a coleta do servidor. O timestamp geral corresponde ao mais antigo entre essas medições essenciais.
+### Tendências: [trend] e [servers.outputs]
 
-Falhas de leitura são isoladas por métrica. Falha de conexão ou da API não gera dados simulados nem confirmação artificial de saúde.
+As seis métricas são `runCPU`, `runMemory`, `runPVT`, `runErrorsPerMinute`, `runLocalPending` e `runRemotePending`.
 
-### 3. Alarmes de tendência
+A ativação exige uma janela completa de elevação sustentada. Padrão: 600 s, 11 medições cobrindo dez minutos, com cadência de origem de 60 s. Não há espera adicional após completar a janela. Timestamps repetidos não contam como novas medições. Lacunas maiores que 90 s reiniciam a janela.
 
-Cada servidor possui seis análises independentes: CPU, RAM, memória privada, erros de scripts por minuto, fila local e fila remota.
+O cálculo usa inclinação robusta Theil–Sen e variação líquida positiva na janela e em trechos móveis de quatro pontos. Pequenas oscilações são toleradas; picos isolados e estabilidade prolongada não ativam. Qualquer elevação sustentada pode ativar atenção, mesmo habitual.
 
-O alarme de atenção dispara quando a elevação se mantém por uma janela completa de 10 minutos no padrão. Com cadência de 60 segundos, são necessárias 11 medições cobrindo pelo menos 600 segundos reais. Não há confirmações adicionais para ativar após completar esse período.
+A referência anterior de 30 min é opcional para ativação e serve à gravidade. O score é normalizado pelo ruído e resolução; padrão crítico 6. RAM e memória privada também possuem análise de 15 min para gravidade, sem atrasar a janela principal. Recuperação/redução exige três novas medições qualificadas.
 
-A tendência usa inclinação robusta Theil–Sen e variação líquida positiva na janela completa e em cada trecho móvel de quatro pontos, equivalente a três minutos na cadência atual. Pequenas quedas ou estabilidade local podem ocorrer; picos isolados, inversão e estabilidade prolongada não satisfazem a regra. Qualquer elevação sustentada pode ativar atenção, mesmo que seja habitual.
+- `measurementSeconds`: fixo em 60.
+- `windowSeconds`: 120–3600, padrão 600.
+- `referenceSeconds`: 600–7200, padrão 1800.
+- `memoryWindowSeconds`: 120–3600, padrão 900, nunca menor que a principal.
+- Janelas são múltiplos de 60.
+- `criticalScore`: positivo e finito; padrão 6.
+- `recoverySamples`: 2–10; padrão 3.
+- `[trend.resolution]`: resolução positiva e finita para cada métrica.
 
-A referência histórica anterior, de 30 minutos no padrão, é opcional para ativação e serve para classificar gravidade. O crescimento acima dessa referência, normalizado pelo ruído e pela resolução configurada, pode gerar estado crítico quando o score alcança 6. RAM e memória privada possuem uma análise complementar de 15 minutos para gravidade, sem atrasar a ativação pela janela principal.
-
-A recuperação ou redução de gravidade exige três novas medições qualificadas no padrão. Uma lacuna maior que 90 segundos reinicia a construção da janela. Dados inválidos prevalecem na saída, preservando o último estado confirmado internamente durante a execução.
+Saídas: `CSEO.<SERVIDOR>.SCADA.Trend.<MÉTRICA>.State`, com CPU, RAM, PrivateMemory, ScriptErrors, LocalQueue e RemoteQueue. Use as mesmas seis chaves das métricas em `[servers.outputs]`.
 
 | Estado | Significado |
 |---|---|
 | 0 | Sem elevação sustentada confirmada |
-| 10 | Elevação sustentada de atenção confirmada |
-| 20 | Elevação sustentada crítica confirmada |
-| 30 | Histórico insuficiente ou reconstrução após lacuna |
+| 10 | Atenção |
+| 20 | Crítico |
+| 30 | Histórico insuficiente ou reconstrução |
 | 40 | Medição inválida, ausente, antiga, futura ou fora de ordem |
 
-No bloco `[trend]`, `windowSeconds` é parametrizável entre 120 e 3600 segundos, `referenceSeconds` entre 600 e 7200 e `memoryWindowSeconds` entre 120 e 3600, nunca menor que a janela principal. Todas são múltiplos de 60. A cadência suportada atualmente permanece em 60 segundos. Também são configuráveis o score crítico, a resolução de cada métrica e as amostras de recuperação. Reinicie o serviço após alterar a configuração.
+### Limites absolutos: [servers.absoluteLimits] e [servers.absoluteOutputs]
 
-### 4. Publicação dos alarmes no PI
+As mesmas seis métricas podem ter um alarme independente, sem depender de tendência ou aquecimento. Limite numérico habilita; chave omitida ou `""` desabilita cálculo e publicação. **Zero é um limite válido.** TOML não aceita uma atribuição sem valor.
 
-A escrita é opcional e vem desabilitada. O adaptador AF SDK está restrito à leitura neste projeto: `enableWrites=true` com `piAdapter = "af-sdk"` é rejeitado na inicialização com mensagem clara, porque a rota AF SDK validada no host foi usada apenas para coleta e não para gravação de estados. São seis tags de estado por servidor, até 42 saídas para sete servidores. O padrão sugerido é `CSEO.<SERVIDOR>.SCADA.Trend.<MÉTRICA>.State`, com os sufixos CPU, RAM, PrivateMemory, ScriptErrors, LocalQueue e RemoteQueue.
+```toml
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
 
-As tags devem existir previamente no PI. O serviço não cria tags nem altera sua configuração. A inicialização valida nomes de saída no namespace `.SCADA.Trend.*.State`, duplicidades, separação entre entradas e saídas e mapeamento completo das seis análises quando a escrita está habilitada.
-
-Somente tags explicitamente autorizadas podem receber os códigos 0, 10, 20, 30 e 40. A publicação usa `UpdateValue`, timestamp PI atual e substituição de duplicados. Estados estáveis recebem heartbeat de 60 segundos; falhas têm retentativa de 30 segundos no padrão, sempre com o estado mais recente.
-
-O status de publicação aparece na API e falhas ficam visíveis no painel. Sucesso da chamada SDK não inclui leitura posterior para confirmar a gravação. Sem conexão PI, o estado inválido não pode ser publicado naquele momento; é necessário monitorar também o heartbeat das saídas.
-
-### 5. API e painel web
-
-`GET /api/v1/status` entrega o cache com métricas, qualidade, timestamps, tendências, estados de publicação e política de análise. O campo `source` identifica `af-sdk`, `pi-sdk-com` ou `simulated`; o painel identifica a origem no indicador de conexão. Abrir mais abas não aumenta as consultas ao PI. Não existe API HTTP de mutação.
-
-O navegador atualiza os dados a cada 10 segundos no padrão. A visão geral exibe um carrossel com um servidor por vez, seguindo a ordem do inventário. Cada página contém os mesmos blocos de Performance e Eventos da página individual: CPU, memória do sistema, memória privada, threads, filas local/remota, ocupação e erros/minuto.
-
-O carrossel avança automaticamente a cada 10 segundos e retorna ao primeiro servidor ao completar o ciclo. Há botões anterior/próximo, seleção direta pelo nome e pausa própria da rotação. A pausa global também suspende a troca; abrir os detalhes interrompe a rotação enquanto essa página estiver visível. As atualizações da API preservam a posição selecionada.
-
-A área superior direita da visão geral contém o Monitoramento compacto de todos os servidores, com dois alarmes por página e rotação independente a cada 10 segundos. A pausa do carrossel de servidores não pausa o Monitoramento; a pausa global suspende ambos. Valores atuais, taxas, estados e nomes dos servidores usam fontes compactas para caber nessa área. Limites demonstrativos e tabela de servidores permanecem fora da visão geral. As análises de tendência também permanecem disponíveis na API e na página individual. Em janelas de desktop com largura mínima de 900 px, a visão geral distribui o cabeçalho, o Monitoramento, as duas linhas de métricas e o rodapé na altura da janela. Em telas estreitas, o layout empilha os blocos e permite rolagem para preservar a leitura. Valores válidos são exibidos na visão geral mesmo durante o aquecimento do histórico; amostras indisponíveis aparecem como traços.
-
-Os gráficos de fluxo da página individual acumulam até 120 amostras por fila e servidor somente durante a execução. Não existe consulta retroativa ao histórico PI. Pausar a atualização no navegador não interrompe aquisição, cálculo ou publicação no serviço.
-
-### 6. Prévia simulada da interface
-
-Para revisão visual sem um PI Data Archive configurado, `simulated_preview.py` inicia um servidor limitado a `127.0.0.1` e fornece amostras sintéticas sempre atuais. Ele não lê, cria nem grava PI Points e não usa o arquivo de configuração de comunicação. A interface identifica a origem como `SIMULAÇÃO LOCAL`.
-
-A prévia contém `COGCGPRO12`, `COGCGPRO34` e `COGCGPRO56`, com os 16 pontos selecionados para o painel: CPU, memória, memória privada, threads, filas local/remota, ocupação, erros/minuto, CPU e handles do E3Server, fila e atraso de E/S, tempo total, uptime e descarte local/remoto. Ela representa, respectivamente, uma carga estável, um alerta de tendência de CPU e um alerta crítico de tendência de memória. É uma ferramenta de interface, não uma validação do cálculo real das tendências ou da integração PI.
-
-O mesmo inventário alimenta a visão geral, o seletor de servidores e as três páginas individuais (`#server/COGCGPRO12`, `#server/COGCGPRO34` e `#server/COGCGPRO56`). O radar exibe somente os servidores com sinalizações ativas. Em 16/10/2026, a navegação para cada uma das três páginas foi verificada no navegador, com nome, métricas e estado correspondentes. As configurações de comunicação PI foram preservadas.
-
-### 7. Limites atuais
-
-Históricos e estados internos ficam em memória. Reiniciar o serviço perde o histórico local e exige reconstruir a janela com medições válidas; o histórico do PI não é apagado. Não há persistência ou restauração dos alarmes confirmados após reinício.
-
-O HTTP atende somente `127.0.0.1`, sem autenticação. Uma TV em outro computador não acessa diretamente esse servidor. O timeout de oito segundos do navegador não interrompe chamadas COM nativas bloqueadas.
-
-## Execução e verificação
-
-Para conexão real são necessários Windows, Python 3.11+, runtime .NET Framework 4.x, `pythonnet`, a DLL AF SDK instalada em `C:\Program Files (x86)\PIPC\AF\PublicAssemblies\4.0\OSIsoft.AFSDK.dll`, e uma conta Windows autorizada no PI. O caminho nativo `PI SDK COM` continua disponível, mas no host validado a leitura real foi obtida somente via AF SDK.
-
-No diretório `C:\dev\dom-watcher`:
-
-```powershell
-python -m pip install -r scada_api/requirements.txt
-python -B scada_api/server.py --config scada_api/config.example.toml --port 8768
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
 ```
 
-Abra `http://127.0.0.1:8768/#overview`. Em produção, utilize uma cópia própria da configuração, preenchida com os dados reais, passando seu caminho em `--config`.
+Valor válido **igual ou superior** ao limite gera `20`; abaixo gera `0`; inválido gera `40`. Não há histerese, temporização nem segundo patamar. A recuperação ocorre na primeira coleta válida abaixo do limite. Limites usam a unidade da entrada e precisam de tag de entrada mapeada; percentuais aceitam 0–100, demais valores são finitos e não negativos.
+
+Saídas: `CSEO.<SERVIDOR>.SCADA.Absolute.<MÉTRICA>.State`, com os mesmos seis sufixos. Saída vazia impede apenas publicação: se o limite estiver habilitado, o alarme continua no painel e em `absoluteAlarms` na API.
+
+Desabilitar interrompe a publicação, mas **não limpa o último valor no PI**. Os consumidores devem considerar habilitação e heartbeat.
+
+## Publicação PI
+
+A escrita exige `enableWrites=true`, adaptador `pi-sdk-com`, PI Data Archive explícito, tags preexistentes e permissões aprovadas. **AF SDK permanece somente leitura**: a configuração rejeita escrita com esse adaptador.
+
+Até 12 saídas por servidor, 84 no total. As seis tendências exigem mapeamento completo quando a escrita está habilitada; as seis saídas absolutas são opcionais. Todas as saídas são validadas globalmente contra duplicidades, colisões com entradas e namespace. Somente endereços autorizados podem receber estados.
+
+A publicação usa `UpdateValue`, timestamp atual PI e substituição de duplicados. Heartbeat e retentativas são independentes por saída. A API expõe `writeStatus` e o painel sinaliza falhas. Não existe confirmação por releitura; sem conexão não é possível publicar o estado inválido.
+
+## API e interface
+
+`GET /api/v1/status` expõe o cache, qualidade, timestamps, históricos, tendências, limites absolutos, diagnóstico de publicação e política de análise. `source` aceita somente `af-sdk` e `pi-sdk-com`. Não existe API HTTP de mutação. Arquivos fora de `web/` não são servidos; listagem de diretórios é bloqueada.
+
+O navegador consulta a cada 10 s, com timeout de 8 s. A visão geral alterna os servidores a cada 10 s; o Monitoramento mostra dois alarmes por página com rotação independente. Existem seleção direta, navegação anterior/próximo e pausa. A pausa global suspende atualização e rotação no navegador, não aquisição/cálculo/publicação do serviço. Os cartões absolutos são identificados como “Limite”.
+
+O cabeçalho unifica a identificação em um único grupo com um ícone de gráfico: “DASHBOARD DE”, “performance SCADA” e “Runtime Elipse E3 e Power”, com hierarquia tipográfica e acabamento em tons frios. Runtime Monitor identifica as abas de visão geral e de servidor. A interface não exibe avisos de “troca automática a cada X segundos”: o Monitoramento mantém somente a paginação, e a legenda dos servidores mantém a idade da amostra e o aviso de atualização pausada, quando aplicável. Os intervalos e a rotação permanecem inalterados. Marcação do título único e remoção desses avisos cobertas pelas 14 verificações JavaScript aprovadas nesta revisão.
+
+Na visão geral de desktop, os cartões de métricas usam altura compacta responsiva de 135–165 px e títulos discretos de 14–20 px, com espaçamento interno reduzido. A identificação principal do servidor usa 30–42 px; os nomes no Monitoramento usam 20–28 px e peso 700. Não há botão de pausa exclusivo do carrossel; permanecem setas, seleção direta e pausa global. Valores, unidades e regras dos alarmes não foram alterados por esse ajuste visual.
+
+Os cartões de Monitoramento possuem símbolos vetoriais grandes (44–64 px), adequados para identificação à distância: octógono com exclamação em crítico, triângulo com exclamação em atenção e círculo com interrogação quando indisponível. Forma, cor e texto são redundantes; não há piscadas nem mudança de prioridade. Os símbolos são decorativos para leitores de tela, que continuam recebendo o estado em texto.
+
+A faixa de conexão mantém a data completa e a hora atual sempre visíveis, atualizadas a cada segundo no fuso `America/Sao_Paulo`, no formato `domingo, 18 de outubro de 2026 - 19:05:48`. A mensagem da origem/conexão e o horário da última resposta ficam em um painel aberto pelo ícone de informações, acionável por clique ou teclado. O relógio usa o horário do computador do navegador e continua funcionando durante a pausa de atualização; ele não comprova atualidade dos dados PI. Os status continuam atualizando mesmo quando o painel de informações está fechado.
+
+As páginas individuais exibem Performance, Eventos, Processos, Qualidade e Recursos. Gráficos de filas acumulam até 120 amostras por fila/servidor em memória; não há consulta histórica retroativa ao PI. O layout de desktop distribui a visão geral na janela; telas estreitas permitem rolagem.
+
+O cabeçalho da página individual apresenta os alarmes em linhas operacionais: ponto, condição, valor atual e estado. Formato percentual absoluto: `E3Run.CPU - Percentual Muito Alto (95,0 %) - Ativo`. Tendências usam “Tendência de Elevação”; métricas não percentuais usam suas unidades próprias. Dados/histórico indisponíveis são identificados como “Indisponível”, não contam como alarmes ativos e não reutilizam valores antigos. Os nomes dos pontos apresentados são rótulos da interface, não substituem os endereços PI configurados. Falhas de publicação continuam sinalizadas; detalhes técnicos permanecem no tooltip e na API. Não há reconhecimento de alarmes nem alteração de limites por essa apresentação.
+
+Históricos e estados internos não persistem após reinício. A janela de tendência precisa ser reconstruída. O histórico do PI não é apagado. O servidor HTTP atende somente loopback, sem autenticação; acesso remoto depende de proxy controlado, TLS e autenticação corporativa. O timeout do navegador não cancela chamadas COM nativas.
+
+## Execução
+
+Requisitos: Windows, Python 3.11+, SDK selecionado instalado, dependências de `requirements.txt` e conta Windows autorizada. AF SDK requer .NET Framework 4.x, pythonnet e a DLL configurada; COM requer pywin32 e arquitetura compatível.
+
+Na raiz do projeto:
 
 ```powershell
-python -B scada_api/test_server.py
-python -B scada_api/test_trends.py
+python -m venv .venv
+& '.\.venv\Scripts\python.exe' -m pip install -r scada_api/requirements.txt
+& '.\.venv\Scripts\python.exe' -u scada_api/server.py --config scada_api/config.toml --port 8768
 ```
 
-Para abrir a prévia visual simulada, sem comunicação PI:
+Abra `http://127.0.0.1:8768/#overview`. Não iniciar uma segunda instância na mesma porta. Provisionar a configuração local antes de iniciar; o arquivo é ignorado pelo Git para preservar dados do ambiente. Nunca habilitar escrita automaticamente.
+
+Diagnóstico, executado somente sob demanda:
 
 ```powershell
-python -B scada_api/simulated_preview.py --port 8768
+python -B scada_api/diagnose_afsdk.py client --config scada_api/config.toml
+python -B scada_api/diagnose_pi.py --server NOME_DO_PI --tag NOME_DA_TAG
+python -B scada_api/diagnose_runtime.py
 ```
 
-Verificação desta revisão em 16/10/2026: um teste Python da simulação e cinco testes Node.js aprovados, além da verificação de sintaxe JavaScript e da navegação no navegador pela visão geral e pelas três páginas individuais. Na suíte Python preexistente, 33 testes passaram e 11 falharam por ausência da DLL AF SDK configurada nesta máquina. Os testes Node verificam a aceitação do contrato da API para os adaptadores PI e a origem de simulação. Os testes de conexão e reconexão usam mocks; nenhum acesso ao PI real ou escrita foi executado nesta revisão. A leitura real de uma tag pelo cliente AF SDK foi relatada anteriormente na estação PI e precisa ser repetida no ambiente de implantação.
+Esses comandos podem realizar leitura no PI; não publicam alarmes. O diagnóstico AF SDK usa o arquivo operacional ou os argumentos `--server` e `--tag`, sem servidor/tag fixados no código.
 
-### Preparação da implantação de leitura em 15/10/2026
+## Verificação de engenharia
 
-1. Atualize a instalação com a revisão aprovada. Crie uma cópia local de `config.example.toml` como `scada_api/config.pi-test.toml`, sem versionar os dados do ambiente.
-2. Selecione `piAdapter = "af-sdk"`, confira `piAfSdkDll`, informe o PI Data Archive e mantenha `enableWrites = false`. No TOML, use barras duplas em strings com aspas duplas ou um caminho literal com aspas simples.
-3. Cadastre inicialmente um servidor e mapeie suas tags reais, sem nomes presumidos. CPU, RAM, erros/min e filas pendentes local/remota são essenciais para `collecting=true`; memória privada também é necessária para completar as seis análises de tendência.
-4. Prepare o ambiente Windows com AF SDK instalado e uma conta autorizada. Instale as dependências no ambiente virtual de execução:
+### Prévia de interface isolada
+
+Para inspeção visual, execute `python -B tools/interface_preview.py --port 8769` a partir da raiz e abra `http://127.0.0.1:8769/#overview`. A ferramenta fica em `tools/`, não carrega `config.toml`, não conecta ao PI e não escreve saídas. O serviço operacional permanece na porta 8768.
+
+A prévia fornece COGCGPRO12, COGCGPRO34 e COGCGPRO56, com os 16 pontos selecionados, cenários de tendência pré-definidos e limites absolutos de CPU/RAM em 90% exclusivamente para avaliação visual. COGCGPRO12 tem CPU estável em aproximadamente 95%, sem tendência CPU e com alarme absoluto. A ferramenta não comprova o algoritmo de tendências nem define limites operacionais.
+
+Apenas a prévia serve `pi-config.js` com `allowSimulatedData=true`. O arquivo operacional mantém `false` e rejeita essa origem. A interface identifica explicitamente `SIMULAÇÃO LOCAL`, incluindo tela individual e rodapé. Os campos e parâmetros operacionais permanecem sem nomenclatura de demonstração; a funcionalidade isolada existe somente para esta inspeção.
+
+### Cobertura automatizada
+
+As verificações automatizadas ficam isoladas em `tests/python/` e `tests/web/`; não são modos de operação da aplicação. Não remover essa cobertura ao preparar implantação.
 
 ```powershell
-python -m venv .venv-afsdk
-& '.\.venv-afsdk\Scripts\python.exe' -m pip install -r scada_api/requirements.txt
-& '.\.venv-afsdk\Scripts\python.exe' -u scada_api/server.py --config scada_api/config.pi-test.toml --port 8768
+python -B -m unittest discover -s tests/python
+node --test tests/web/test-*.cjs
 ```
 
-5. Abra `http://127.0.0.1:8768/api/v1/status` e `http://127.0.0.1:8768/#overview`. Confirme `source=af-sdk`, valores, unidades, qualidade e timestamps recentes. Durante a construção do histórico de tendência, a interface pode mostrar estado desconhecido e ocultar os valores; confira as métricas individuais na API durante esse período.
-6. Observe por pelo menos 15 minutos e valide perda/retomada de conexão em ambiente controlado. Registre as evidências e só então amplie o inventário. A conta Windows do processo define a identidade usada: ao executar manualmente é a conta do terminal; serviço/tarefa agendada usa a conta configurada para a execução.
+Node.js só é necessário para as verificações do frontend. As verificações Python isolam dependências SDK com mocks, inclusive a existência da DLL; não comprovam disponibilidade da DLL real nem autenticação, leitura ou escrita PI no ambiente.
 
-Verificações reproduzíveis, a partir da raiz do projeto:
+Verificação do serviço: 56 verificações Python aprovadas; a integração HTTP local é exercitada sem acessar o PI. Verificação da apresentação em 18/10/2026: 14 verificações JavaScript aprovadas, incluindo painel acessível de informações da conexão e relógio no fuso de São Paulo e independente da pausa, símbolos de severidade, formato das linhas de alarme, distinção de tendência/limite e separação entre ativo e indisponível. Incluem a geração isolada dos três servidores e a rejeição da origem simulada pelo frontend operacional. Prévia na porta 8769 conferida no navegador com valores e alarmes absolutos/tendência. Comunicação e permissões de escrita foram preservadas. A configuração local foi renomeada sem alterar os parâmetros de conexão, consulta ou publicação; apenas os metadados do servidor foram padronizados.
 
-```powershell
-& '.\.venv-afsdk\Scripts\python.exe' -B -m unittest discover -s scada_api -p 'test_*.py'
-$env:PYTHON = (Resolve-Path '.\.venv-afsdk\Scripts\python.exe').Path
-node --test web/test-data-source.cjs
-```
+## Pendências de implantação
 
-Node.js é necessário para os testes do frontend, não para executar o painel. A configuração de exemplo mantém COM e entradas vazias, portanto iniciá-la sem ajustes não valida a conexão AF SDK. O serviço permanece limitado a loopback e o acesso de uma TV remota exige a implantação de rede descrita nas pendências. O AF SDK continua bloqueado para escrita; nenhuma alteração nesta revisão habilita publicação no PI.
+Verificação visual em 18/10/2026: títulos de métricas discretos, nomes de servidores ampliados, cartões compactos e botão de pausa exclusivo do carrossel removido. Dez verificações JavaScript aprovadas, incluindo ausência desse botão e preservação da pausa global. No navegador, não houve corte de cartões nem rolagem da página nos viewports de 1280×720 e 2133×1000. Não houve alteração da comunicação ou acesso ao PI.
 
-Arquivos `__pycache__`, bytecode e o resultado local `real_read_afsdk.txt` foram retirados da versão rastreada; os conteúdos anteriores continuam recuperáveis no histórico Git. O `.gitignore` impede sua inclusão futura. Isso não remove dados do histórico nem os arquivos da estação de teste.
+Implementado e verificado no código:
 
-## Pendências
+- [x] Configuração operacional `config.toml`, referência separada e nomenclaturas operacionais.
+- [x] Aplicação restrita a fontes PI reais, sem geração local de medições.
+- [x] Tendências e limites absolutos independentes com saídas autorizadas.
+- [x] Verificações de engenharia separadas dos arquivos de execução.
+- [x] Prévia visual isolada em `tools/`, sem PI, com habilitação explícita no frontend servido apenas pela porta 8769.
 
-### Prévia visual local
+Antes da liberação no ambiente:
 
-- [x] Disponibilizar e verificar COGCGPRO12, COGCGPRO34 e COGCGPRO56 na visão geral, no seletor e nas páginas individuais com dados simulados.
-- [x] Exibir o carrossel de Performance e Eventos com Monitoramento compacto no canto superior direito. Verificar rotação dos três servidores e dos alarmes, pausa e encaixe do conteúdo na janela de desktop em 16/10/2026.
+- [ ] Preencher PI Data Archive, inventário real, entradas e saídas aprovadas.
+- [ ] Conferir unidades, qualidade e timestamps; assegurar publicação das entradas a cada 60 s e políticas de exceção/compressão.
+- [ ] Instalar e verificar SDK, DLL, arquitetura e dependências no host de execução.
+- [ ] Validar autenticação e permissões da conta Windows.
+- [ ] Aprovar janelas, gravidade, resoluções e limites absolutos.
+- [ ] Validar leitura, disparo, recuperação, lacunas, falhas de conexão e reinício com dados reais.
+- [ ] Provisionar tipos, códigos, retenção e exceção/compressão das saídas.
+- [ ] Autorizar escrita COM e conferir transições/heartbeat no PI antes de habilitá-la.
+- [ ] Definir conta de serviço, inicialização automática, supervisão, reinício e diagnóstico.
+- [ ] Implantar proxy/TLS/autenticação e firewall se houver acesso de outra máquina.
+- [ ] Validar apresentação na TV e registrar aprovação operacional.
 
-### Obrigatórias para comissionamento e produção
-
-- [ ] Informar o PI Data Archive e cadastrar os servidores reais, até sete, na ordem desejada.
-- [ ] Mapear as tags reais de entrada e conferir unidades, qualidade e timestamps; memória privada é esperada em KiB, erros e fluxos já devem estar em taxas por minuto.
-- [ ] Validar publicação/heartbeat das entradas e sua exceção/compressão para assegurar novas medições a cada 60 segundos e evitar falsas lacunas ou dados antigos.
-- [ ] Validar Windows, Python, PI SDK, arquitetura COM e `pywin32` no computador de execução.
-- [ ] Validar autenticação da conta Windows e permissões de leitura das entradas e escrita somente nas saídas aprovadas.
-- [ ] Provisionar ou confirmar as tags reais de saída, seus tipos numéricos, códigos, exceção/compressão e retenção.
-- [ ] Validar leitura real, comportamento dos alarmes de 10 minutos, recuperação, qualidade inválida e falhas de conexão em ambiente controlado.
-- [ ] Habilitar `enableWrites=true` somente após aprovação dos mapeamentos e permissões; confirmar as gravações no PI, incluindo transições e heartbeat.
-- [ ] Aprovar parâmetros de gravidade, resoluções e limites absolutos visuais conforme o ambiente real.
-- [ ] Definir execução contínua: conta do serviço, inicialização automática, supervisão, reinício e diagnóstico operacional.
-- [ ] Se a TV estiver em outro computador, implantar acesso de rede controlado com proxy, TLS, autenticação corporativa e regras de firewall; validar a apresentação na TV real.
-- [ ] Registrar evidências do teste ponta a ponta e a aprovação para produção neste documento.
-
-### Limitações a avaliar, sem compromisso de implementação
-
-- [ ] Decidir se é necessária persistência/restauração de histórico e estados após reinício.
-- [ ] Decidir se é necessária leitura histórica PI para reduzir o aquecimento inicial.
-- [ ] Avaliar isolamento e supervisão para chamadas COM bloqueadas; atualmente não existe timeout que cancele a chamada nativa.
-- [ ] Avaliar confirmação de escrita por releitura e diagnóstico operacional adicional.
-
-A chegada dos dados ao PI via SCADA está resolvida externamente e não deve ser reintroduzida como pendência. Nenhum item deve ser marcado como concluído apenas por existir código: as pendências de ambiente precisam de validação real.
+Limitações a avaliar: persistência/restauração de estados; leitura histórica; isolamento de chamadas COM bloqueadas; confirmação de escrita por releitura. A existência de código e verificações locais não substitui o comissionamento no PI.
 

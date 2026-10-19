@@ -1,11 +1,11 @@
-/* Version: 1.6 | Date: 16/10/2026
-Changes: Accepted the explicit local simulation API source and its no-PI status message. */
+/* PI API adapter contract and quality validation. */
 'use strict';
 const PI_DATA_STATE = { status: 'starting', message: 'Aguardando API PI', lastSuccess: null, policy: { triggerMode: 'sustained-rise', continuitySeconds: 180, measurementSeconds: 60, windowSeconds: 600, referenceSeconds: 1800, memoryWindowSeconds: 900, recoverySamples: 3 } };
 const PI_ESSENTIAL = ['runCPU', 'runMemory', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'];
 function validTimestamp(value) { return Number.isFinite(value) && value > 0 && value <= Date.now(); }
 function normalizeStatus(payload) {
-  if (payload?.schemaVersion !== 1 || !['pi-sdk-com', 'af-sdk', 'simulated'].includes(payload.source) || !Array.isArray(payload.servers) || !payload.servers.length || payload.servers.length > MAX_MONITORED_SERVERS) throw Error('Resposta da API incompatível');
+  const allowedSources = PI_API_CONFIG.allowSimulatedData === true ? ['pi-sdk-com', 'af-sdk', 'simulated'] : ['pi-sdk-com', 'af-sdk'];
+  if (payload?.schemaVersion !== 1 || !allowedSources.includes(payload.source) || !Array.isArray(payload.servers) || !payload.servers.length || payload.servers.length > MAX_MONITORED_SERVERS) throw Error('Resposta da API incompatível');
   const stale = payload.staleSeconds;
   if (!Number.isFinite(stale) || stale < 5 || stale > 86400) throw Error('Validade da amostra inválida');
   const policy = payload.trendPolicy || PI_DATA_STATE.policy;
@@ -26,7 +26,7 @@ function normalizeStatus(payload) {
     const collecting = server.collecting === true && PI_ESSENTIAL.every(key => Number.isFinite(metrics[key])) && validTimestamp(server.sampleTime) && Date.now() - server.sampleTime <= stale * 1000;
     const trendKeys = ['runCPU', 'runMemory', 'runPVT', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'];
     const requiredTrends = [...trendKeys];
-    if (payload.source === 'simulated') trendKeys.push('runTRD');
+    if (payload.source === 'simulated' && PI_API_CONFIG.allowSimulatedData === true) trendKeys.push('runTRD');
     const trends = Array.isArray(server.trends) ? server.trends : [];
     const trendIds = new Set();
     for (const trend of trends) {
@@ -35,8 +35,14 @@ function normalizeStatus(payload) {
     }
     if (trends.length && !requiredTrends.every(key => trendIds.has(key))) throw Error('Tendências incompletas');
     const histories = {};
+    const absoluteAlarms = Array.isArray(server.absoluteAlarms) ? server.absoluteAlarms : [];
+    const absoluteIds = new Set();
+    for (const alarm of absoluteAlarms) {
+      if (!requiredTrends.includes(alarm.metric) || absoluteIds.has(alarm.metric) || ![0, 20, 40].includes(alarm.state) || !Number.isFinite(alarm.limit) || alarm.limit < 0) throw Error('Estados de limite absoluto inválidos');
+      absoluteIds.add(alarm.metric);
+    }
     for (const kind of ['local', 'remote']) histories[kind] = (Array.isArray(server.histories?.[kind]) ? server.histories[kind] : []).filter(point => validTimestamp(point.timestamp) && ['entered', 'handled', 'discard'].every(key => Number.isFinite(point[key]) && point[key] >= 0) && point.discard <= 100).sort((a, b) => a.timestamp - b.timestamp).slice(-120);
-    return { id: server.id, name: String(server.name || server.id), site: String(server.site || ''), environment: String(server.environment || ''), role: String(server.role || ''), sampleTime: validTimestamp(server.sampleTime) ? server.sampleTime : null, collecting, metrics, histories, trends, message: String(server.message || '') };
+    return { id: server.id, name: String(server.name || server.id), site: String(server.site || ''), environment: String(server.environment || ''), role: String(server.role || ''), sampleTime: validTimestamp(server.sampleTime) ? server.sampleTime : null, collecting, metrics, histories, trends, absoluteAlarms, message: String(server.message || '') };
   });
   return { servers, stale, policy };
 }
@@ -55,10 +61,10 @@ function startDataSource(onUpdate, isPaused) {
         HEALTH_LIMITS.staleSeconds = normalized.stale;
         PI_DATA_STATE.policy = normalized.policy;
         PI_DATA_STATE.source = payload.source;
+        PI_DATA_STATE.simulated = payload.source === 'simulated';
         PI_DATA_STATE.status = payload.serviceStatus;
-        PI_DATA_STATE.message = payload.source === 'simulated' && payload.serviceStatus === 'connected'
-          ? 'Dados simulados locais ativos — sem comunicação PI'
-          : ({ connected: 'Leitura PI ativa', 'not-configured': 'Configure o servidor PI e as tags', degraded: 'Leitura PI parcial', unavailable: 'Conexão PI indisponível', starting: 'Aguardando leitura PI' })[payload.serviceStatus] || 'Estado PI desconhecido';
+        PI_DATA_STATE.message = ({ connected: 'Leitura PI ativa', 'not-configured': 'Configure o servidor PI e as tags', degraded: 'Leitura PI parcial', unavailable: 'Conexão PI indisponível', starting: 'Aguardando leitura PI' })[payload.serviceStatus] || 'Estado PI desconhecido';
+        if (PI_DATA_STATE.simulated) PI_DATA_STATE.message = 'Dados simulados locais — sem leitura ou escrita PI';
         PI_DATA_STATE.lastSuccess = Date.now();
       } catch {
         for (const server of SERVERS) { server.collecting = false; server.message = 'API PI indisponível'; }

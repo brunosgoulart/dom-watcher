@@ -1,28 +1,27 @@
 <!-- Version: 1.19 | Date: 16/10/2026
-Changes: Invalidated data-source and application caches for the local simulation indicator. -->
+Changes: Loaded the operational PI interface. -->
 <!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>E3 Monitor — Visão geral</title>
-  <link rel="stylesheet" href="styles.css?v=1.14">
-  <script src="pi-config.js?v=1.0" defer></script>
-  <script src="servers.js?v=1.7" defer></script>
-  <script src="pi-data-source.js?v=1.7" defer></script>
-  <script src="app.js?v=1.25" defer></script>
+  <title>Runtime Monitor — Visão geral</title>
+  <link rel="stylesheet" href="styles.css?v=3.3">
+  <script src="pi-config.js?v=2.1" defer></script>
+  <script src="servers.js?v=2.0" defer></script>
+  <script src="pi-data-source.js?v=2.1" defer></script>
+  <script src="app.js?v=3.1" defer></script>
 </head>
 <body>
   <div class="dashboard">
     <header class="topbar">
-      <a class="brand" href="#overview"><span class="brand-symbol">E3</span><span>E3 <b>MONITOR</b></span></a>
-      <div class="page-title">Dashboard de performance</div>
-      <div class="header-actions"><span class="demo" id="source-badge">PI · AGUARDANDO API</span><button id="pause" type="button" aria-pressed="false">Pausar atualização</button></div>
+      <a class="brand dashboard-brand" href="#overview" aria-label="Dashboard de performance SCADA - Runtime Elipse E3 e Power"><span class="page-title-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V7m5 10v-5m5 5V9m5 8V4"></path><path d="M3 20h18"></path></svg></span><span class="page-title-copy"><span class="page-title-eyebrow">Dashboard de</span><span class="page-title-name">performance SCADA</span><span class="page-title-subtitle">Runtime Elipse E3 e Power</span></span></a>
+      <div class="header-actions"><span class="connection-badge" id="source-badge">PI · AGUARDANDO API</span><button id="pause" type="button" aria-pressed="false">Pausar atualização</button></div>
     </header>
-    <nav class="view-navigation" aria-label="Navegação do monitor"><a href="#overview" id="fleet-link">Visão geral</a><label>Servidor <select id="server-select"><option value="">Selecionar servidor</option></select></label><span id="simulation-status">Aguardando API PI</span><span id="updated"></span></nav>
+    <nav class="view-navigation" aria-label="Navegação do monitor"><a href="#overview" id="fleet-link">Visão geral</a><label>Servidor <select id="server-select"><option value="">Selecionar servidor</option></select></label><div class="connection-info"><details class="connection-details" id="connection-details"><summary aria-label="Informações da conexão" title="Informações da conexão"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6m0-10h.01"></path></svg></summary><div class="connection-status-panel"><strong>Status da conexão</strong><p id="connection-status">Aguardando API PI</p><p id="updated"></p></div></details><time id="current-datetime" aria-label="Data e hora atual — horário de São Paulo"></time></div></nav>
     <main id="main" tabindex="-1"></main>
-    <footer><span><i></i>PI Data Archive · leitura via SDK COM</span><span>E3 LOG READER <b>/</b> MONITOR v1.18</span></footer>
+    <footer><span id="footer-source">PI Data Archive · aguardando conexão</span><span>E3 LOG READER <b>/</b> MONITOR</span></footer>
   </div>
 </body>
 </html>

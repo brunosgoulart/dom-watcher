@@ -12,8 +12,8 @@ def check_path(path: str) -> bool:
     return Path(path).exists()
 
 
-def test_native_sdk(server_name: str, tag_name: str | None = None) -> int:
-    print(f"== Teste do SDK nativo PI para servidor '{server_name}' ==")
+def diagnose_native_sdk(server_name: str, tag_name: str | None = None) -> int:
+    print(f"== Diagnóstico do SDK nativo PI para servidor '{server_name}' ==")
     print(f"Python: {platform.python_version()} | bits: {struct.calcsize('P') * 8}")
     print(f"OS: {platform.system()} {platform.release()} | platform: {sys.platform}")
 
@@ -33,7 +33,7 @@ def test_native_sdk(server_name: str, tag_name: str | None = None) -> int:
         print("\nResultado: falha antes do SDK porque o módulo win32com não está instalado.")
         return 1
 
-    print("\n== Teste de COM do PI SDK ==")
+    print("\n== Verificação de COM do PI SDK ==")
     try:
         import win32com.client
 
@@ -52,7 +52,7 @@ def test_native_sdk(server_name: str, tag_name: str | None = None) -> int:
         print("- sessão executada em máquina/host errado")
         return 2
 
-    print("\n== Teste de abertura do servidor ==")
+    print("\n== Verificação de abertura do servidor ==")
     try:
         import win32com.client
 
@@ -62,7 +62,7 @@ def test_native_sdk(server_name: str, tag_name: str | None = None) -> int:
         server.Open()
         print(f"server.Connected: {bool(server.Connected)}")
         if tag_name:
-            print(f"\n== Teste de leitura da tag '{tag_name}' ==")
+            print(f"\n== Verificação de leitura da tag '{tag_name}' ==")
             point = server.PIPoints.Item(tag_name)
             snapshot = point.Data.Snapshot
             value = snapshot.Value
@@ -87,10 +87,10 @@ def test_native_sdk(server_name: str, tag_name: str | None = None) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Diagnóstico de conexão nativa PI SDK COM.")
-    parser.add_argument("--server", default="PIDATAPRO", help="Nome do servidor PI a testar.")
+    parser.add_argument("--server", required=True, help="Nome do servidor PI a verificar.")
     parser.add_argument("--tag", default=None, help="(Opcional) Tag PI para validar leitura após abrir o servidor.")
     args = parser.parse_args()
-    return test_native_sdk(args.server, args.tag)
+    return diagnose_native_sdk(args.server, args.tag)
 
 
 if __name__ == "__main__":

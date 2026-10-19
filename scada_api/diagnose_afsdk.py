@@ -1,10 +1,13 @@
+import argparse
 import os
+import tomllib
+from pathlib import Path
 import sys
 import traceback
 
 AF_DLL = r"C:\Program Files (x86)\PIPC\AF\PublicAssemblies\4.0\OSIsoft.AFSDK.dll"
-SERVER = "PIDATAPRO"
-TAG = "CSEO.COGCGPRO56.E3Run.CPU"
+SERVER = ""
+TAG = ""
 
 
 def direct_read():
@@ -81,7 +84,7 @@ def client_read():
     print(f"[client] server={SERVER}", flush=True)
     print(f"[client] tag={TAG}", flush=True)
     try:
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'scada_api'))
+        sys.path.insert(0, os.path.dirname(__file__))
         from pi_client import PIReadClient
         client = PIReadClient(SERVER, adapter='af-sdk', af_sdk_dll=AF_DLL)
         print("[client] created PIReadClient", flush=True)
@@ -108,7 +111,21 @@ def client_read():
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "direct"
+    global AF_DLL, SERVER, TAG
+    parser = argparse.ArgumentParser(description="Diagnóstico de leitura AF SDK.")
+    parser.add_argument("mode", choices=("direct", "client"), nargs="?", default="client")
+    parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.toml"))
+    parser.add_argument("--server")
+    parser.add_argument("--tag")
+    args = parser.parse_args()
+    with args.config.open("rb") as stream:
+        config = tomllib.load(stream)
+    AF_DLL = config.get("piAfSdkDll", AF_DLL)
+    SERVER = args.server or config.get("piServer", "")
+    TAG = args.tag or next((tag for server in config.get("servers", []) for tag in server.get("tags", {}).values()), "")
+    if not SERVER or not TAG:
+        parser.error("Configure piServer e uma tag de entrada, ou informe --server e --tag.")
+    mode = args.mode
     if mode == "direct":
         raise SystemExit(direct_read())
     if mode == "client":

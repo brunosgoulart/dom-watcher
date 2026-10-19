@@ -1,3 +1,7 @@
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / 'scada_api'))
+
 """Version: 1.2 | Date: 13/10/2026
 Changes: Tested exact ten-minute sustained-rise activation, tolerated oscillations, optional historical severity and no added activation delay.
 """
@@ -207,14 +211,17 @@ class OutputTests(unittest.TestCase):
 
 class ConfigTests(unittest.TestCase):
     def setUp(self):
-        self.path = Path(__file__).with_name("config.example.toml")
+        dll_check = patch("server.os.path.exists", return_value=True)
+        dll_check.start()
+        self.addCleanup(dll_check.stop)
+        self.path = Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml"
         self.config = load_config(self.path)
 
     def load_fake(self, config):
         with patch("server.tomllib.load", return_value=copy.deepcopy(config)):
             return load_config(self.path)
 
-    def test_example_outputs_42_disabled(self):
+    def test_reference_outputs_42_disabled(self):
         self.assertFalse(self.config["enableWrites"])
         self.assertEqual(sum(len(s["outputs"]) for s in self.config["servers"]), 42)
 

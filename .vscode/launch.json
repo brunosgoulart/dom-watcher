@@ -9,7 +9,7 @@
       "program": "${workspaceFolder}/scada_api/server.py",
       "args": [
         "--config",
-        "${workspaceFolder}/scada_api/config.pi-test.toml",
+        "${workspaceFolder}/scada_api/config.toml",
         "--port",
         "8768"
       ],

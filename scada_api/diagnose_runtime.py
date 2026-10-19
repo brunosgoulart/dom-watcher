@@ -3,7 +3,7 @@ import sys
 import traceback
 
 AF_PATH = r"C:\Program Files (x86)\PIPC\AF\PublicAssemblies\4.0\OSIsoft.AFSDK.dll"
-print("=== AF SDK PROBE START ===")
+print("=== AF SDK RUNTIME DIAGNOSTICS START ===")
 print("PYTHON_EXE", sys.executable)
 print("AF_PATH", AF_PATH)
 print("AF_PATH_EXISTS", os.path.exists(AF_PATH))
@@ -44,4 +44,4 @@ except Exception:
     traceback.print_exc()
     sys.exit(4)
 
-print("=== AF SDK PROBE END ===")
+print("=== AF SDK RUNTIME DIAGNOSTICS END ===")

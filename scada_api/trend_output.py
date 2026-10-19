@@ -7,9 +7,9 @@ from trends import TREND_METRICS
 
 
 class TrendPublisher:
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict, output_key: str = "outputs") -> None:
         self.enabled = config.get("enableWrites", False)
-        self.tags = {s["id"]: s.get("outputs", {}) for s in config["servers"]}
+        self.tags = {s["id"]: {key: tag for key, tag in s.get(output_key, {}).items() if tag} for s in config["servers"]}
         self.heartbeat = config.get("outputHeartbeatSeconds", 60) * 1000
         self.retry = config.get("writeRetrySeconds", 30) * 1000
         self.last_success: dict[str, tuple[int, float]] = {}

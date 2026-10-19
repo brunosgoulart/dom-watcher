@@ -1,5 +1,5 @@
 /* Version: 1.0 | Date: 14/10/2026
-Changes: Verified frontend acceptance of PI and local simulation API payloads and rejection of unknown sources. */
+Changes: Verified the operational PI API contract and rejection of unsupported sources. */
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -8,10 +8,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
 
-function createContext() {
+function createContext(allowSimulatedData = false) {
   const context = vm.createContext({ console, AbortController, setTimeout: () => 0, clearTimeout: () => {} });
   for (const file of ['servers.js', 'pi-config.js', 'pi-data-source.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, file), 'utf8'), context, { filename: file });
+    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'web', file), 'utf8');
+    vm.runInContext(file === 'pi-config.js' && allowSimulatedData ? source.replace('allowSimulatedData: false', 'allowSimulatedData: true') : source, context, { filename: file });
   }
   return context;
 }
@@ -27,11 +28,11 @@ function apiPayload(source) {
     'print(json.dumps(store.get()))',
   ].join('\n');
   return JSON.parse(execFileSync(process.env.PYTHON || 'python', ['-B', '-c', code], {
-    cwd: path.join(__dirname, '..', 'scada_api'), encoding: 'utf8',
+    cwd: path.join(__dirname, '..', '..', 'scada_api'), encoding: 'utf8',
   }));
 }
 
-for (const source of ['af-sdk', 'pi-sdk-com', 'simulated']) {
+for (const source of ['af-sdk', 'pi-sdk-com']) {
   test(`frontend accepts real backend payload for ${source}`, () => {
     const context = createContext();
     context.payload = apiPayload(source);
@@ -40,6 +41,27 @@ for (const source of ['af-sdk', 'pi-sdk-com', 'simulated']) {
     assert.equal(normalized.servers[0].collecting, false);
   });
 }
+
+test('frontend preserves absolute alarms and rejects duplicate or invalid limits', () => {
+  const context = createContext();
+  context.payload = apiPayload('af-sdk');
+  context.payload.servers[0].absoluteAlarms = [{ metric: 'runCPU', state: 20, limit: 90, timestamp: Date.now() }];
+  assert.equal(vm.runInContext('normalizeStatus(payload).servers[0].absoluteAlarms[0].limit', context), 90);
+  context.payload.servers[0].absoluteAlarms.push({...context.payload.servers[0].absoluteAlarms[0]});
+  assert.throws(() => vm.runInContext('normalizeStatus(payload)', context), /absoluto inválidos/);
+  context.payload.servers[0].absoluteAlarms = [{ metric: 'runCPU', state: 20, limit: -1 }];
+  assert.throws(() => vm.runInContext('normalizeStatus(payload)', context), /absoluto inválidos/);
+});
+
+test('simulation requires explicit preview permission and is rejected operationally', () => {
+  const payload = apiPayload('simulated');
+  const operational = createContext();
+  operational.payload = payload;
+  assert.throws(() => vm.runInContext('normalizeStatus(payload)', operational), /incompatível/);
+  const preview = createContext(true);
+  preview.payload = payload;
+  assert.equal(vm.runInContext('normalizeStatus(payload).servers[0].id', preview), 'test');
+});
 
 test('frontend rejects unknown API sources', () => {
   const context = createContext();
