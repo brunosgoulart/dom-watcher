@@ -1,6 +1,6 @@
 # Runtime Monitor
 
-Atualizado em: 18/10/2026.
+Atualizado em: 19/10/2026.
 
 ## Manutenção
 
@@ -28,7 +28,38 @@ A chegada das medições ao PI é responsabilidade do sistema SCADA existente e 
 
 O serviço carrega `scada_api/config.toml` por padrão. É possível selecionar outro arquivo com `--config`. Não há fallback automático para a referência. Se o arquivo não existir, deve ser provisionado a partir de `config.reference.toml` e preenchido com os dados aprovados.
 
-A configuração local desta estação ainda está sem PI Data Archive e sem entradas mapeadas. A aplicação deve indicar essa condição, sem apresentar valores inventados.
+A configuração local desta estação possui as entradas de COGCGPRO12, COGCGPRO34 e COGCGPRO56 mapeadas, mas ainda está sem PI Data Archive. A aplicação deve indicar essa condição, sem apresentar valores inventados.
+
+### Inventário disponível: COGCGPRO12, COGCGPRO34 e COGCGPRO56
+
+O perfil versionado `config.cogcgpro.toml` contém somente 16 entradas existentes por servidor (48 leituras), com os nomes exatos fornecidos em 19/10/2026. Usa AF SDK, escrita desabilitada, nenhum endereço de saída presumido e nenhum limite absoluto arbitrário. O serviço continua carregando `config.toml` por padrão; o perfil é uma fonte de provisionamento, não um fallback. Configure `piServer` e `piAfSdkDll` no arquivo operacional e reinicie o serviço.
+
+Todos os sufixos abaixo recebem o prefixo `CSEO.<SERVIDOR>.`:
+
+| Métrica | Sufixo PI |
+|---|---|
+| `runCPU` | `E3Run.CPU` |
+| `runMemory` | `E3Run.Memory` |
+| `runPVT` | `E3Run.PVT` |
+| `runTRD` | `E3Run.TRD` |
+| `runLocalPending` | `E3Run.PendingEvents` |
+| `runRemotePending` | `E3Run.RemotePending` |
+| `runOccupancy` | `E3Run.Occupancy` |
+| `runErrorsPerMinute` | `E3Run.ErrorsPerMinute` |
+| `serverCPU` | `E3Server.CPU` |
+| `serverHDL` | `E3Server.HDL` |
+| `ioQueuePending` | `ioQueue.Pending` |
+| `ioQueueAvgDelay` | `ioQueue.AvgDelay` |
+| `totalTime` | `TotalTime` |
+| `runUptimeMinutes` | `E3Run.UpTimeMinutes` |
+| `remoteHandledRate` | `E3Run.RemoteHandledPerMinute` |
+| `remoteDiscardPercent` | `E3Run.RemoteDiscardPercent` |
+
+`PendingEvents` foi associado à fila local; confirmar essa semântica no comissionamento. Confirmar também PVT em KiB, TotalTime em segundos e as demais unidades de origem: nomes de tags não comprovam unidades. Não há conversão implícita. CPU/RAM/ocupação/descarte remoto devem chegar em 0–100; erros e tratados remotos já como taxas por minuto.
+
+Os outros dez pontos por servidor foram inventariados, mas **não são coletados nem exibidos** nesta versão: `CollectionTimeStamp`, `E3Run.AvgScriptTime`, `E3Run.DiscardedEvents`, `E3Run.Errors`, `E3Run.HDL`, `E3Run.PageFaults`, `E3Run.RemoteDiscardedPerMinute`, `E3Server.PVT`, `E3Server.Status` e `FileRead`. Não possuem correspondência nas métricas atuais. Timestamp, status e FileRead também precisam de confirmação de tipo/semântica antes de associá-los a medições numéricas.
+
+Não foram informadas tags de entrada/tratamento/descarte local, entrada remota, espaço livre ou tamanho ETL. Essas métricas permanecem indisponíveis; os históricos de fluxo exigem as três entradas da respectiva fila e ficam vazios, sem estimar fluxo a partir de pendências ou descartes. O valor de tratados remotos está disponível em `metrics.remoteHandledRate` na API, mesmo sem o trio necessário ao gráfico.
 
 Parâmetros globais:
 
@@ -207,6 +238,8 @@ Node.js só é necessário para as verificações do frontend. As verificações
 Verificação do serviço: 56 verificações Python aprovadas; a integração HTTP local é exercitada sem acessar o PI. Verificação da apresentação em 18/10/2026: 14 verificações JavaScript aprovadas, incluindo painel acessível de informações da conexão e relógio no fuso de São Paulo e independente da pausa, símbolos de severidade, formato das linhas de alarme, distinção de tendência/limite e separação entre ativo e indisponível. Incluem a geração isolada dos três servidores e a rejeição da origem simulada pelo frontend operacional. Prévia na porta 8769 conferida no navegador com valores e alarmes absolutos/tendência. Comunicação e permissões de escrita foram preservadas. A configuração local foi renomeada sem alterar os parâmetros de conexão, consulta ou publicação; apenas os metadados do servidor foram padronizados.
 
 ## Pendências de implantação
+
+Mapeamento de entradas em 19/10/2026: 64 verificações Python e 16 JavaScript aprovadas. Os novos casos conferem nomes e capitalização das 48 tags, leitura das três máquinas, ausência de saídas/limites presumidos e manutenção de métricas/históricos ausentes como indisponíveis. Os valores de teste usam um cliente isolado; não houve acesso ao PI. A configuração privada preservou os parâmetros globais e recebeu somente o inventário e os mapeamentos. A DLL AF SDK ainda não está disponível no caminho padrão e o PI Data Archive não foi informado.
 
 Preparação para leitura real em 18/10/2026: 61 verificações Python e 16 JavaScript aprovadas. Cobrem também leitura parcial, métricas durante formação de tendências, expiração individual, indisponibilidade da API e timestamps inválidos na serialização JSON. A configuração privada e a comunicação existente foram preservadas. A verificação local aponta ausência de PI Data Archive, mapeamento das entradas e módulos COM no Python utilizado; não foi possível validar conexão ou valores reais. Não considerar este resultado um comissionamento concluído.
 
