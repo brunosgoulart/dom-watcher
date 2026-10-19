@@ -36,10 +36,10 @@ class CogcgproConfigTests(unittest.TestCase):
             self.assertEqual(item['tags'], {key: f"CSEO.{item['id']}.{suffix}" for key, suffix in MAPPING.items()})
             self.assertTrue(set(ESSENTIAL).issubset(item['tags']))
 
-    def test_no_assumed_archive_limits_or_output_points(self):
+    def test_confirmed_archive_without_assumed_limits_or_output_points(self):
         config = self.config()
         self.assertEqual(config['piAdapter'], 'af-sdk')
-        self.assertEqual(config['piServer'], '')
+        self.assertEqual(config['piServer'], 'pidatapro')
         self.assertFalse(config['enableWrites'])
         for item in config['servers']:
             self.assertFalse(item.get('outputs'))

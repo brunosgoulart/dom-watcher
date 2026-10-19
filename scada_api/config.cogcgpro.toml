@@ -1,7 +1,7 @@
 # Available PI input mappings supplied on 19/10/2026.
-# Set piServer to the approved PI Data Archive before starting.
+# PI Data Archive confirmed by the operator: pidatapro.
 # No output tags or absolute limits are assumed.
-piServer = ""
+piServer = "pidatapro"
 piAdapter = "af-sdk"
 pollSeconds = 30
 staleSeconds = 120

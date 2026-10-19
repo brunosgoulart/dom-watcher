@@ -28,7 +28,7 @@ A chegada das medições ao PI é responsabilidade do sistema SCADA existente e 
 
 O serviço carrega `scada_api/config.toml` por padrão. É possível selecionar outro arquivo com `--config`. Não há fallback automático para a referência. Se o arquivo não existir, deve ser provisionado a partir de `config.reference.toml` e preenchido com os dados aprovados.
 
-A configuração local desta estação possui as entradas de COGCGPRO12, COGCGPRO34 e COGCGPRO56 mapeadas, mas ainda está sem PI Data Archive. A aplicação deve indicar essa condição, sem apresentar valores inventados.
+A configuração local e o perfil `config.cogcgpro.toml` possuem as entradas de COGCGPRO12, COGCGPRO34 e COGCGPRO56 mapeadas e usam o PI Data Archive `pidatapro`, confirmado pelo operador. O AF SDK ainda precisa estar instalado no caminho configurado; não há conexão real validada nesta estação.
 
 ### Inventário disponível: COGCGPRO12, COGCGPRO34 e COGCGPRO56
 
