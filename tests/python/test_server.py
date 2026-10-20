@@ -181,6 +181,32 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse(client._read_af_snapshot("D1")["good"])
         self.assertFalse(client._read_af_snapshot("D2")["good"])
 
+    def test_af_sdk_metadata_preserves_text_boolean_and_digital_labels(self):
+        from datetime import datetime, timezone
+        client = PIReadClient('ARCHIVE', adapter='af-sdk')
+        client.server = SimpleNamespace()
+        for raw, expected in [('arquivo.xml', 'arquivo.xml'), (True, True),
+                              (SimpleNamespace(Name='Operando', IsSystem=False), 'Operando'),
+                              (SimpleNamespace(Name='I/O Timeout', IsSystem=True), None)]:
+            client.points['TAG'] = SimpleNamespace(Snapshot=Mock(return_value=SimpleNamespace(
+                Value=raw, Status='Good', IsGood=True, Timestamp=datetime.now(timezone.utc))))
+            result = client.read_value('TAG')
+            self.assertEqual(result['value'], expected)
+            self.assertEqual(result['good'], expected is not None)
+
+    def test_metadata_quality_staleness_and_boolean_metrics_are_isolated(self):
+        item = {'id':'s', 'tags':{'serverStatus':'STATUS', 'fileRead':'FILE', 'runCPU':'CPU'}}
+        client = SimpleNamespace(read=Mock(return_value={'value':True,'timestamp':100000,'good':True,'status':'Good'}),
+                                 read_value=Mock(return_value={'value':'<status>','timestamp':100000,'good':True,'status':'Good'}))
+        sample = read_server(item, client, 101000, 120)
+        self.assertEqual(sample['metrics']['serverStatus'], '<status>')
+        self.assertIsNone(sample['metrics']['runCPU'])
+        self.assertFalse(sample['collecting'])
+        sample = read_server(item, client, 221000, 120)
+        self.assertIsNone(sample['metrics']['serverStatus'])
+        client.read_value.return_value['good'] = False
+        self.assertIsNone(read_server(item, client, 101000, 120)['metrics']['fileRead'])
+
     def test_af_sdk_reads_even_when_connected_flag_is_false(self):
         client = PIReadClient("PIDATAPRO", adapter="af-sdk", af_sdk_dll="C:/temp/afsdk.dll")
         client.server = SimpleNamespace(Connected=False)

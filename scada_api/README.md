@@ -32,7 +32,7 @@ A configuração local e o perfil `config.cogcgpro.toml` possuem as entradas de 
 
 ### Inventário disponível: COGCGPRO12, COGCGPRO34 e COGCGPRO56
 
-O perfil versionado `config.cogcgpro.toml` contém somente 16 entradas existentes por servidor (48 leituras), com os nomes exatos fornecidos em 19/10/2026. Usa AF SDK, escrita desabilitada, nenhum endereço de saída presumido e nenhum limite absoluto arbitrário. O serviço continua carregando `config.toml` por padrão; o perfil é uma fonte de provisionamento, não um fallback. Configure `piServer` e `piAfSdkDll` no arquivo operacional e reinicie o serviço.
+O perfil versionado `config.cogcgpro.toml` e o arquivo operacional contêm as 26 tags existentes por servidor (78 leituras), com os nomes exatos fornecidos em 19/10/2026. Usam AF SDK, escrita desabilitada, nenhum endereço de saída presumido e nenhum limite absoluto arbitrário. O serviço continua carregando `config.toml` por padrão; o perfil é uma fonte de provisionamento, não um fallback. Confira `piAfSdkDll` no arquivo operacional e reinicie o serviço após alterações.
 
 Todos os sufixos abaixo recebem o prefixo `CSEO.<SERVIDOR>.`:
 
@@ -54,12 +54,28 @@ Todos os sufixos abaixo recebem o prefixo `CSEO.<SERVIDOR>.`:
 | `runUptimeMinutes` | `E3Run.UpTimeMinutes` |
 | `remoteHandledRate` | `E3Run.RemoteHandledPerMinute` |
 | `remoteDiscardPercent` | `E3Run.RemoteDiscardPercent` |
+| `runAvgScriptTime` | `E3Run.AvgScriptTime` |
+| `runDiscardedEvents` | `E3Run.DiscardedEvents` |
+| `runErrors` | `E3Run.Errors` |
+| `runHDL` | `E3Run.HDL` |
+| `runPageFaults` | `E3Run.PageFaults` |
+| `remoteDiscardedRate` | `E3Run.RemoteDiscardedPerMinute` |
+| `serverPVT` | `E3Server.PVT` |
+| `collectionTimestamp` | `CollectionTimeStamp` |
+| `fileRead` | `FileRead` |
+| `serverStatus` | `E3Server.Status` |
 
 `PendingEvents` foi associado à fila local; confirmar essa semântica no comissionamento. Confirmar também PVT em KiB, TotalTime em segundos e as demais unidades de origem: nomes de tags não comprovam unidades. Não há conversão implícita. CPU/RAM/ocupação/descarte remoto devem chegar em 0–100; erros e tratados remotos já como taxas por minuto.
 
-Os outros dez pontos por servidor foram inventariados, mas **não são coletados nem exibidos** nesta versão: `CollectionTimeStamp`, `E3Run.AvgScriptTime`, `E3Run.DiscardedEvents`, `E3Run.Errors`, `E3Run.HDL`, `E3Run.PageFaults`, `E3Run.RemoteDiscardedPerMinute`, `E3Server.PVT`, `E3Server.Status` e `FileRead`. Não possuem correspondência nas métricas atuais. Timestamp, status e FileRead também precisam de confirmação de tipo/semântica antes de associá-los a medições numéricas.
+Todos esses pontos são coletados e exibidos nas duas páginas. `collectionTimestamp`, `fileRead` e `serverStatus` admitem texto, booleano, número ou rótulo digital válido; são informações, não entradas de cálculo de tendência. O valor de `CollectionTimeStamp` não substitui o timestamp do snapshot para validar frescor. Estados digitais de sistema/erro e qualidade ruim são rejeitados. Não se presume que um código de status represente um processo saudável. Os demais pontos continuam numéricos, não negativos, com qualidade e timestamp válidos.
 
-Não foram informadas tags de entrada/tratamento/descarte local, entrada remota, espaço livre ou tamanho ETL. Essas métricas permanecem indisponíveis; os históricos de fluxo exigem as três entradas da respectiva fila e ficam vazios, sem estimar fluxo a partir de pendências ou descartes. O valor de tratados remotos está disponível em `metrics.remoteHandledRate` na API, mesmo sem o trio necessário ao gráfico.
+`AvgScriptTime` e `ioQueue.AvgDelay` mostram o valor sem unidade presumida, com essa ressalva na tela; confirmar a unidade no PI antes de acrescentá-la. `Errors`, `DiscardedEvents` e `PageFaults` são valores/contadores publicados, não taxas derivadas. `RemoteDiscardedPerMinute` é taxa por minuto. Memória privada do E3Server segue apresentação em KiB, como a do E3Run; confirmar a unidade de origem no comissionamento.
+
+Não foram informadas tags de taxas de entrada/tratamento/descarte percentual local, entrada remota, espaço livre ou tamanho ETL. Essas métricas permanecem indisponíveis e não ocupam cartões nas páginas atualizadas. Os históricos de fluxo não são apresentados, sem estimar fluxos a partir de pendências ou contadores. Tratados e descartados remotos aparecem em cartões próprios, independentemente do histórico.
+
+### Apresentação das métricas
+
+Na visão geral, Runtime e scripts, Eventos e Servidor e coleta são páginas selecionáveis de métricas. O carrossel percorre os servidores a cada 10 s e avança o grupo ao completar uma volta, cobrindo todas as combinações. A pausa global também pausa essa alternância. Em 1280×720 a visão geral cabe sem rolagem; descrições auxiliares ficam ocultas em telas baixas, e valores textuais completos estão no título do cartão. A página individual reúne os 26 pontos em seis seções responsivas e permite rolagem para leitura detalhada. Status e metadados são escapados como texto, nunca HTML. Não são criados alarmes adicionais para as novas entradas.
 
 Parâmetros globais:
 
@@ -92,11 +108,14 @@ ioQueuePending, ioQueueAvgDelay
 totalTime, runUptimeMinutes
 localEnteredRate, localHandledRate, localDiscardPercent
 remoteEnteredRate, remoteHandledRate, remoteDiscardPercent
+runAvgScriptTime, runDiscardedEvents, runErrors, runHDL, runPageFaults
+remoteDiscardedRate, serverPVT
+collectionTimestamp, fileRead, serverStatus
 ```
 
-São 22 entradas suportadas. CPU, RAM, erros/minuto e as duas filas pendentes são essenciais para `collecting=true`. Memória privada é necessária para completar as seis tendências. Memória privada é esperada em KiB; erros e fluxos já devem chegar como taxas por minuto. O serviço não transforma contadores brutos em taxas.
+São 32 entradas suportadas, das quais 26 existem no inventário COGCGPRO informado. CPU, RAM, erros/minuto e as duas filas pendentes são essenciais para `collecting=true`. Memória privada é necessária para completar as seis tendências. Memória privada é esperada em KiB; erros/minuto e fluxos já devem chegar como taxas por minuto. O serviço não transforma contadores brutos em taxas.
 
-Valores ausentes, ruins, questionáveis, booleanos, não numéricos, não finitos, negativos, futuros ou antigos são indisponíveis, nunca zero. Percentuais devem estar entre 0 e 100. O timestamp geral é o mais antigo das entradas essenciais. Falhas são isoladas por métrica; uma falha de conexão não confirma normalidade.
+Nas métricas numéricas, valores ausentes, ruins, questionáveis, booleanos, não numéricos, não finitos, negativos, futuros ou antigos são indisponíveis, nunca zero. Os três campos informativos permitem os tipos descritos acima, com o mesmo controle de qualidade e frescor. Percentuais devem estar entre 0 e 100. O timestamp geral é o mais antigo das entradas essenciais. Falhas são isoladas por métrica; uma falha de conexão não confirma normalidade.
 
 O AF SDK usa `pythonnet`, runtime `netfx`, `PIServer.FindPIServer`, `Connect` e snapshots de PIPoints. Reutiliza sessão/cache e reconecta após falha de snapshot. O COM usa uma thread própria com inicialização COM. Chamadas nativas não possuem timeout cancelável.
 
@@ -220,7 +239,7 @@ Cada medição é apresentada conforme sua própria qualidade e timestamp, sem e
 
 Para inspeção visual, execute `python -B tools/interface_preview.py --port 8769` a partir da raiz e abra `http://127.0.0.1:8769/#overview`. A ferramenta fica em `tools/`, não carrega `config.toml`, não conecta ao PI e não escreve saídas. O serviço operacional permanece na porta 8768.
 
-A prévia fornece COGCGPRO12, COGCGPRO34 e COGCGPRO56, com os 16 pontos selecionados, cenários de tendência pré-definidos e limites absolutos de CPU/RAM em 90% exclusivamente para avaliação visual. COGCGPRO12 tem CPU estável em aproximadamente 95%, sem tendência CPU e com alarme absoluto. A ferramenta não comprova o algoritmo de tendências nem define limites operacionais.
+A prévia fornece COGCGPRO12, COGCGPRO34 e COGCGPRO56, com os 26 pontos selecionados, cenários de tendência pré-definidos e limites absolutos de CPU/RAM em 90% exclusivamente para avaliação visual. COGCGPRO12 tem CPU estável em aproximadamente 95%, sem tendência CPU e com alarme absoluto. A ferramenta não comprova o algoritmo de tendências nem define limites operacionais.
 
 Apenas a prévia serve `pi-config.js` com `allowSimulatedData=true`. O arquivo operacional mantém `false` e rejeita essa origem. A interface identifica explicitamente `SIMULAÇÃO LOCAL`, incluindo tela individual e rodapé. Os campos e parâmetros operacionais permanecem sem nomenclatura de demonstração; a funcionalidade isolada existe somente para esta inspeção.
 
@@ -238,6 +257,8 @@ Node.js só é necessário para as verificações do frontend. As verificações
 Verificação do serviço: 56 verificações Python aprovadas; a integração HTTP local é exercitada sem acessar o PI. Verificação da apresentação em 18/10/2026: 14 verificações JavaScript aprovadas, incluindo painel acessível de informações da conexão e relógio no fuso de São Paulo e independente da pausa, símbolos de severidade, formato das linhas de alarme, distinção de tendência/limite e separação entre ativo e indisponível. Incluem a geração isolada dos três servidores e a rejeição da origem simulada pelo frontend operacional. Prévia na porta 8769 conferida no navegador com valores e alarmes absolutos/tendência. Comunicação e permissões de escrita foram preservadas. A configuração local foi renomeada sem alterar os parâmetros de conexão, consulta ou publicação; apenas os metadados do servidor foram padronizados.
 
 ## Pendências de implantação
+
+Ampliação das páginas em 19/10/2026: 68 verificações Python e 20 JavaScript aprovadas, incluindo leitura das 78 entradas, qualidade/tipos de metadados, rejeição de estados digitais de sistema, escape HTML e cobertura das 26 métricas por servidor no carrossel (também com apenas um servidor configurado). Prévia visual isolada na porta 8770; nenhum acesso ao PI. A conferência visual da visão geral em 1280×720 não indicou rolagem da janela. Instalação da DLL AF SDK, permissões e validação das unidades no PI continuam pendentes.
 
 Distribuição do arquivo operacional em 19/10/2026: `config.toml` incluído no versionamento por solicitação do operador, removendo a necessidade de cópia manual após baixar o projeto. Contém somente os dados já aprovados no perfil COGCGPRO, sem credenciais. 65 verificações Python aprovadas, incluindo equivalência entre o arquivo padrão e o perfil; SDK simulado apenas nos testes. A ausência local da DLL AF SDK continua impedindo a validação de conexão real.
 

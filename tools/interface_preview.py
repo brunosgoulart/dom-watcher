@@ -23,7 +23,10 @@ SIMULATED_METRICS = (
     "runCPU", "runMemory", "runPVT", "runTRD", "runLocalPending",
     "runRemotePending", "runOccupancy", "runErrorsPerMinute", "serverCPU",
     "serverHDL", "ioQueuePending", "ioQueueAvgDelay", "totalTime",
-    "runUptimeMinutes", "localDiscardPercent", "remoteDiscardPercent",
+    "runUptimeMinutes", "remoteDiscardPercent", "remoteHandledRate",
+    "runAvgScriptTime", "runDiscardedEvents", "runErrors", "runHDL",
+    "runPageFaults", "remoteDiscardedRate", "serverPVT",
+    "collectionTimestamp", "fileRead", "serverStatus",
 )
 
 PROFILES = (
@@ -77,6 +80,11 @@ def simulated_values(profile: dict, now_seconds: float) -> dict:
     """Keep every displayed numeric value fresh, with a small harmless variation."""
     phase = (hash(profile["id"]) % 10) + now_seconds / 12
     values = dict(profile["metrics"])
+    values.update(runAvgScriptTime=0.004, runDiscardedEvents=12, runErrors=48,
+                  runHDL=920, runPageFaults=12480, remoteDiscardedRate=0.2,
+                  remoteHandledRate=38.5, serverPVT=245760,
+                  collectionTimestamp=datetime.fromtimestamp(now_seconds, timezone.utc).isoformat(),
+                  fileRead=f"Coleta_{profile['id']}_20261019.xml", serverStatus="Em execução (simulado)")
     if profile["trend"].get("runTRD"):
         values["runTRD"] += int((now_seconds % 1800) / 60 * 4)
     for key, amplitude in (("runCPU", 0.35), ("runMemory", 0.2), ("runPVT", 512),

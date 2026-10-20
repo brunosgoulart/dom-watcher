@@ -63,7 +63,7 @@ test('overview cycles through all servers and keeps compact monitoring', () => {
   assert.equal(page.intervals[0].milliseconds, 10000);
   for (const id of ['COGCGPRO12', 'COGCGPRO34', 'COGCGPRO56']) {
     assert.ok(page.html().includes('<h1>' + id + '</h1>'));
-    assert.equal((page.html().match(/class="metric-card"/g) || []).length, 8);
+    assert.equal((page.html().match(/data-metric="/g) || []).length, 11);
     assert.ok(page.html().includes('MONITORAMENTO'));
     assert.doesNotMatch(page.html(), /Troca automática/);
     assert.ok(!page.html().includes('Limites demonstrativos'));
@@ -169,4 +169,36 @@ test('measurements expire individually and disappear when the API is unavailable
   assert.equal(vm.runInContext('currentMetric(SERVERS[0], "runCPU")', page.context), null);
   vm.runInContext(`SERVERS[0].metricQuality.runCPU.timestamp = Date.now(); SERVERS[0].apiAvailable = false`, page.context);
   assert.equal(vm.runInContext('currentMetric(SERVERS[0], "runCPU")', page.context), null);
+});
+
+test('all 26 metrics are accessible for every server across the overview carousel', () => {
+  const page = monitoring();
+  const seen = new Map();
+  for (let step=0; step<9; step++) {
+    const id = vm.runInContext('SERVERS[carouselIndex].id',page.context);
+    if (!seen.has(id)) seen.set(id,new Set());
+    for (const match of page.html().matchAll(/data-metric="([^"]+)"/g)) seen.get(id).add(match[1]);
+    page.intervals[0].callback();
+  }
+  assert.equal(seen.size,3);
+  for (const fields of seen.values()) assert.equal(fields.size,26);
+});
+
+test('detail displays all metrics and escapes metadata without inventing process health', () => {
+  const page = monitoring();
+  vm.runInContext(`SERVERS[0].metrics.fileRead='<img src=x onerror=alert(1)>'; SERVERS[0].metrics.serverStatus='Operando'; renderDetail(SERVERS[0])`,page.context);
+  assert.equal((page.html().match(/data-metric="/g)||[]).length,26);
+  assert.match(page.html(),/&lt;img/);
+  assert.doesNotMatch(page.html(),/<img/);
+  assert.match(page.html(),/Operando/);
+  assert.doesNotMatch(page.html(),/ESPAÇO LIVRE|ARQUIVO ETL|Reset de contadores|MÉTRICAS DISPONÍVEIS NO PI/);
+});
+
+test('metric groups also rotate when only one server is configured', () => {
+  const page=monitoring();
+  vm.runInContext('SERVERS.splice(1); renderFleet()',page.context);
+  page.intervals[0].callback();
+  assert.match(page.html(),/2 \/ 3 · 26 pontos/);
+  page.intervals[0].callback();
+  assert.match(page.html(),/3 \/ 3 · 26 pontos/);
 });

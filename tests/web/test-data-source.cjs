@@ -42,6 +42,20 @@ for (const source of ['af-sdk', 'pi-sdk-com']) {
   });
 }
 
+test('metadata accepts strings and booleans only for designated keys and expires by PI timestamp', () => {
+  const context=createContext();
+  context.payload=apiPayload('af-sdk');
+  const server=context.payload.servers[0];
+  server.metrics={fileRead:'<arquivo.xml>',serverStatus:true,collectionTimestamp:'19/10/2026 10:00',runCPU:'95'};
+  server.metricQuality=Object.fromEntries(Object.keys(server.metrics).map(key=>[key,{good:true,timestamp:Date.now()}]));
+  const values=vm.runInContext('normalizeStatus(payload).servers[0].metrics',context);
+  assert.equal(values.fileRead,'<arquivo.xml>');
+  assert.equal(values.serverStatus,true);
+  assert.equal(values.runCPU,null);
+  server.metricQuality.fileRead.timestamp=Date.now()-121000;
+  assert.equal(vm.runInContext('normalizeStatus(payload).servers[0].metrics.fileRead',context),null);
+});
+
 test('frontend preserves absolute alarms and rejects duplicate or invalid limits', () => {
   const context = createContext();
   context.payload = apiPayload('af-sdk');

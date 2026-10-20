@@ -1,6 +1,8 @@
 /* Version: 1.4 | Date: 13/10/2026
 Changes: Classified server health and radar signals using trend states, insufficient history and output write failures. */
 'use strict';
+const PI_TEXT_METRICS = new Set(['collectionTimestamp', 'fileRead', 'serverStatus']);
+function hasMetricValue(key, value) { return Number.isFinite(value) || PI_TEXT_METRICS.has(key) && (typeof value === 'boolean' || typeof value === 'string' && value.trim().length > 0); }
 const HEALTH_STATES = {
   healthy: { label: 'Sem alarmes ativos', priority: 3 }, warning: { label: 'Atenção', priority: 1 },
   critical: { label: 'Crítico', priority: 0 }, unknown: { label: 'Estado não confirmado', priority: 2 }

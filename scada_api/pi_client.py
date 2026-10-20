@@ -105,7 +105,24 @@ class PIReadClient:
             raise RuntimeError("PI connection unavailable")
         self.server = server
 
-    def _read_af_snapshot(self, tag: str) -> dict[str, Any]:
+    @staticmethod
+    def _display_value(raw):
+        """Preserve metadata without converting digital states or timestamps into numbers."""
+        if raw is None or bool(getattr(raw, "IsSystem", False)):
+            return None
+        if isinstance(raw, (str, bool)):
+            return raw if not isinstance(raw, str) or raw.strip() else None
+        if isinstance(raw, (float, int)):
+            return raw if math.isfinite(raw) else None
+        if isinstance(raw, datetime):
+            return raw.isoformat()
+        if hasattr(raw, "Name"):
+            return str(raw.Name)
+        if hasattr(raw, "ToString"):
+            return str(raw.ToString())
+        return None
+
+    def _read_af_snapshot(self, tag: str, allow_text: bool = False) -> dict[str, Any]:
         if self.server is None:
             raise RuntimeError("AF SDK connection unavailable")
         if tag not in self.points:
@@ -122,15 +139,15 @@ class PIReadClient:
         raw = getattr(snapshot, "Value", None)
         status = str(getattr(snapshot, "Status", "Bad") or "Bad")
         good = bool(getattr(snapshot, "IsGood", False))
-        if any(token in status.lower() for token in ("bad", "questionable", "unavailable", "not good", "digital")):
+        if any(token in status.lower() for token in ("bad", "questionable", "unavailable", "not good")) or (not allow_text and "digital" in status.lower()):
             good = False
-        if isinstance(raw, bool):
+        if isinstance(raw, bool) and not allow_text:
             good = False
         try:
-            value = float(raw)
+            value = self._display_value(raw) if allow_text else float(raw)
         except (TypeError, ValueError):
             value = None
-        if value is None or not math.isfinite(value):
+        if value is None or (not allow_text and not math.isfinite(value)):
             good = False
         timestamp_ms = self._af_timestamp_to_ms(getattr(snapshot, "Timestamp", None))
         if timestamp_ms is None or not math.isfinite(timestamp_ms):
@@ -182,6 +199,20 @@ class PIReadClient:
             if good:
                 samples.append({"value": value, "timestamp": timestamp, "good": True, "status": status or "Good"})
         return samples
+
+    def read_value(self, tag: str) -> dict[str, Any]:
+        """Read textual/status metadata with the same PI quality and timestamp checks."""
+        if not tag or tag.lower().startswith("af:") or tag.startswith("\\\\"):
+            raise ValueError("Configure an unqualified PI Point name")
+        if self.adapter == "af-sdk":
+            return self._read_af_snapshot(tag, allow_text=True)
+        if tag not in self.points:
+            self.points[tag] = self.server.PIPoints.Item(tag)
+        snapshot = self.points[tag].Data.Snapshot
+        value = self._display_value(snapshot.Value)
+        stamp = float(snapshot.TimeStamp.UTCSeconds) * 1000
+        good = bool(getattr(snapshot, "IsGood", False)) and not bool(getattr(snapshot, "Questionable", False)) and value is not None and math.isfinite(stamp)
+        return {"value": value if good else None, "timestamp": stamp if math.isfinite(stamp) else None, "good": good, "status": "Good" if good else "Bad"}
 
     def read(self, tag: str) -> dict[str, Any]:
         if not tag or tag.lower().startswith("af:") or tag.startswith("\\\\"):

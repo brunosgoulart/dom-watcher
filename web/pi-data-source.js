@@ -20,7 +20,7 @@ function normalizeStatus(payload) {
     const metrics = {};
     for (const [key, value] of Object.entries(server.metrics || {})) {
       const quality = server.metricQuality?.[key];
-      metrics[key] = Number.isFinite(value) && value >= 0 && quality?.good === true && validTimestamp(quality.timestamp) && Date.now() - quality.timestamp <= stale * 1000 ? value : null;
+      metrics[key] = hasMetricValue(key, value) && (typeof value !== 'number' || value >= 0) && quality?.good === true && validTimestamp(quality.timestamp) && Date.now() - quality.timestamp <= stale * 1000 ? value : null;
       if (['runCPU', 'runMemory', 'runOccupancy', 'serverCPU'].includes(key) && value > 100) metrics[key] = null;
     }
     const collecting = server.collecting === true && PI_ESSENTIAL.every(key => Number.isFinite(metrics[key])) && validTimestamp(server.sampleTime) && Date.now() - server.sampleTime <= stale * 1000;
@@ -42,7 +42,7 @@ function normalizeStatus(payload) {
       absoluteIds.add(alarm.metric);
     }
     for (const kind of ['local', 'remote']) histories[kind] = (Array.isArray(server.histories?.[kind]) ? server.histories[kind] : []).filter(point => validTimestamp(point.timestamp) && ['entered', 'handled', 'discard'].every(key => Number.isFinite(point[key]) && point[key] >= 0) && point.discard <= 100).sort((a, b) => a.timestamp - b.timestamp).slice(-120);
-    const metricQuality = Object.fromEntries(Object.keys(metrics).map(key => [key, { good: Number.isFinite(metrics[key]), timestamp: validTimestamp(server.metricQuality?.[key]?.timestamp) ? server.metricQuality[key].timestamp : null }]));
+    const metricQuality = Object.fromEntries(Object.keys(metrics).map(key => [key, { good: hasMetricValue(key, metrics[key]), timestamp: validTimestamp(server.metricQuality?.[key]?.timestamp) ? server.metricQuality[key].timestamp : null }]));
     return { id: server.id, name: String(server.name || server.id), site: String(server.site || ''), environment: String(server.environment || ''), role: String(server.role || ''), sampleTime: validTimestamp(server.sampleTime) ? server.sampleTime : null, collecting, apiAvailable: true, metrics, metricQuality, histories, trends, absoluteAlarms, message: String(server.message || '') };
   });
   return { servers, stale, policy };

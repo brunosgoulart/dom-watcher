@@ -4,10 +4,10 @@ const format = (value, digits = 0) => Number.isFinite(value) ? new Intl.NumberFo
 const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const main = document.getElementById('main');
 let paused = false;
-let historyMinutes = 15;
 let activeServerId = null;
 let carouselIndex = 0;
 let monitoringPage = 0;
+let overviewMetricPage = 0;
 const CAROUSEL_INTERVAL_MS = 10000;
 const dashboardDateFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const dashboardTimeFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -31,7 +31,7 @@ function currentMetric(server, key, now = Date.now()) {
   const quality = server.metricQuality?.[key];
   const timestamp = quality ? quality.timestamp : server.sampleTime;
   const value = server.metrics?.[key];
-  return Number.isFinite(value) && (!quality || quality.good === true) && Number.isFinite(timestamp) && timestamp <= now && now - timestamp <= HEALTH_LIMITS.staleSeconds * 1000 ? value : null;
+  return hasMetricValue(key, value) && (!quality || quality.good === true) && Number.isFinite(timestamp) && timestamp <= now && now - timestamp <= HEALTH_LIMITS.staleSeconds * 1000 ? value : null;
 }
 function visibleMetrics(server) { return Object.fromEntries(Object.keys(server.metrics || {}).map(key => [key, currentMetric(server, key)])); }
 function serverAlarmPanel(server, health) {
@@ -80,56 +80,60 @@ function renderFleet() {
   }
   carouselIndex = ((carouselIndex % SERVERS.length) + SERVERS.length) % SERVERS.length;
   const server = SERVERS[carouselIndex];
-  const { performance, events } = serverMetricGroups(visibleMetrics(server));
-  main.innerHTML = `<section class="server-carousel" aria-label="Carrossel de servidores"><div class="overview-top"><div class="carousel-identity"><p class="carousel-eyebrow">VISÃO GERAL · SERVIDOR ${carouselIndex + 1} DE ${SERVERS.length}</p><h1>${escapeHtml(server.name)}</h1><p>${escapeHtml(server.site)} · ${escapeHtml(server.environment)}</p><div class="carousel-controls"><a class="back-link" href="#server/${encodeURIComponent(server.id)}">Detalhes ↗</a><button id="carousel-previous" type="button" aria-label="Servidor anterior">←</button><button id="carousel-next" type="button" aria-label="Próximo servidor">→</button></div><div class="carousel-dots" aria-label="Selecionar servidor">${SERVERS.map((item, index) => `<button type="button" data-carousel-index="${index}" aria-label="Mostrar ${escapeHtml(item.name)}" aria-pressed="${index === carouselIndex}">${escapeHtml(item.name)}</button>`).join('')}</div></div><aside id="overview-monitoring" aria-label="Monitoramento de todos os servidores">${monitoringPanel()}</aside></div><div class="primary-grid carousel-metrics"><section aria-labelledby="performance-title"><h2 id="performance-title">PERFORMANCE <span>E3RUN</span></h2><div class="metric-grid">${metricCards(performance)}</div></section><section aria-labelledby="events-title"><h2 id="events-title">EVENTOS <span>LOCAL / REMOTE</span></h2><div class="metric-grid">${metricCards(events)}</div></section></div><p class="carousel-caption">${!server.collecting ? 'Sem dados recentes · ' : ''}${paused ? 'Atualização pausada · ' : ''}Amostra: ${sampleAge(server)}</p></section>`;
+  const groups = serverMetricGroups(visibleMetrics(server));
+  const pages = ['Runtime e scripts', 'Eventos', 'Servidor e coleta'];
+  overviewMetricPage = ((overviewMetricPage % pages.length) + pages.length) % pages.length;
+  const navigation = `<nav class="metric-pages" aria-label="Grupos de métricas">${pages.map((label,index) => `<button type="button" data-metric-page="${index}" aria-pressed="${overviewMetricPage === index}">${label}</button>`).join('')}<span>${overviewMetricPage + 1} / ${pages.length} · 26 pontos por servidor</span></nav>`;
+  main.innerHTML = `<section class="server-carousel" aria-label="Carrossel de servidores"><div class="overview-top"><div class="carousel-identity"><p class="carousel-eyebrow">VISÃO GERAL · SERVIDOR ${carouselIndex + 1} DE ${SERVERS.length}</p><h1>${escapeHtml(server.name)}</h1><p>${escapeHtml(server.site)} · ${escapeHtml(server.environment)}</p><div class="carousel-controls"><a class="back-link" href="#server/${encodeURIComponent(server.id)}">Detalhes ↗</a><button id="carousel-previous" type="button" aria-label="Servidor anterior">←</button><button id="carousel-next" type="button" aria-label="Próximo servidor">→</button></div><div class="carousel-dots" aria-label="Selecionar servidor">${SERVERS.map((item, index) => `<button type="button" data-carousel-index="${index}" aria-label="Mostrar ${escapeHtml(item.name)}" aria-pressed="${index === carouselIndex}">${escapeHtml(item.name)}</button>`).join('')}</div></div><aside id="overview-monitoring" aria-label="Monitoramento de todos os servidores">${monitoringPanel()}</aside></div>${navigation}<div class="primary-grid carousel-metrics all-metrics">${metricSections(groups.slice(overviewMetricPage * 2, overviewMetricPage * 2 + 2))}</div><p class="carousel-caption">${!server.collecting ? 'Sem dados recentes · ' : ''}${paused ? 'Atualização pausada · ' : ''}Amostra: ${sampleAge(server)}</p></section>`;
 }
 function advanceCarousel() {
-  if (paused || activeServerId || SERVERS.length < 2 || !document.getElementById('carousel-next')) return;
+  if (paused || activeServerId || !SERVERS.length || !document.getElementById('carousel-next')) return;
+  if (carouselIndex === SERVERS.length - 1) overviewMetricPage = (overviewMetricPage + 1) % 3;
   carouselIndex = (carouselIndex + 1) % SERVERS.length;
   renderFleet();
 }
 function metricCards(metrics) {
-  return metrics.map(m => `<article class="metric-card"><div class="card-heading">${m.label}</div><div class="metric-body"><span class="metric-icon" aria-hidden="true">${m.icon}</span><strong class="metric-value">${format(m.value, m.digits || 0)}<em>${Number.isFinite(m.value) ? m.unit || '' : ''}</em></strong></div><div class="metric-sub">${Number.isFinite(m.value) ? m.detail : 'Sem dados recentes'}</div>${m.progress && Number.isFinite(m.value) ? `<div class="mini-track" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, m.value))}%"></span></div>` : ''}</article>`).join('');
+  return metrics.map(m => {
+    const available = hasMetricValue(m.key, m.value);
+    const text = PI_TEXT_METRICS.has(m.key);
+    const reading = !available ? '—' : text ? String(m.value) : format(m.value, Number(m.digits || 0));
+    return `<article class="metric-card ${text ? 'text-metric' : ''}" data-metric="${m.key}"><div class="card-heading">${escapeHtml(m.label)}</div><div class="metric-body"><strong class="metric-value" title="${escapeHtml(reading)}">${escapeHtml(reading)}<em>${available ? escapeHtml(m.unit || '') : ''}</em></strong></div><div class="metric-sub">${available ? escapeHtml(m.detail || 'Valor publicado no PI') : 'Sem dados válidos recentes'}</div></article>`;
+  }).join('');
 }
-function chartSvg(kind, samples) {
-  if (!samples.length) return '<div class="no-chart">Histórico PI ainda indisponível.</div>';
-  const width = 600, height = 190, left = 43, right = 12, top = 12, bottom = 27;
-  const plotWidth = width - left - right, plotHeight = height - top - bottom;
-  const start = samples[0].timestamp, end = samples.at(-1).timestamp;
-  const max = Math.ceil(Math.max(...samples.flatMap(item => [item.entered, item.handled])) / 200) * 200 || 200;
-  const points = field => samples.map(item => `${(left + (item.timestamp - start) / (end - start || 1) * plotWidth).toFixed(1)},${(top + plotHeight - item[field] / max * plotHeight).toFixed(1)}`).join(' ');
-  const grid = Array.from({ length: 5 }, (_, i) => { const y = top + i * plotHeight / 4; return `<line class="gridline" x1="${left}" x2="${width - right}" y1="${y}" y2="${y}"/><text x="${left - 8}" y="${y + 3}" text-anchor="end">${format(max * (1 - i / 4))}</text>`; }).join('');
-  const times = Array.from({ length: 7 }, (_, i) => `<text x="${left + i * plotWidth / 6}" y="${height - 7}" text-anchor="middle">${new Date(start + i * (end - start) / 6).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</text>`).join('');
-  const area = field => `${left},${top + plotHeight} ${points(field)} ${width - right},${top + plotHeight}`;
-  return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Histórico PI de eventos ${kind === 'local' ? 'locais' : 'remotos'} enfileirados e tratados por minuto"><defs><linearGradient id="${kind}-blue" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#56b7d4" stop-opacity=".3"/><stop offset="1" stop-color="#56b7d4" stop-opacity=".02"/></linearGradient><linearGradient id="${kind}-green" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#91d66a" stop-opacity=".3"/><stop offset="1" stop-color="#91d66a" stop-opacity=".02"/></linearGradient></defs>${grid}<polygon points="${area('entered')}" fill="url(#${kind}-blue)"/><polygon points="${area('handled')}" fill="url(#${kind}-green)"/><polyline points="${points('entered')}" fill="none" stroke="#56b7d4" stroke-width="1.5"/><polyline points="${points('handled')}" fill="none" stroke="#91d66a" stroke-width="1.5"/>${times}</svg>`;
-}
-function renderFlows() {
-  document.querySelector('.flow-section')?.remove();
-}
-function uptime(minutes) { return Number.isFinite(minutes) ? `${Math.floor(minutes / 1440)} d ${Math.floor(minutes % 1440 / 60)} h ${minutes % 60} min` : '—'; }
 function serverMetricGroups(m) {
-  const performance = [
-    { label: 'CPU · E3RUN', value: m.runCPU, unit: '%', digits: 1, icon: '▣', detail: 'Carga do processo', progress: true },
-    { label: 'MEMÓRIA · SISTEMA', value: m.runMemory, unit: '%', digits: 1, icon: '▥', detail: 'MemoryLoad publicado no PI', progress: true },
-    { label: 'MEMÓRIA PRIVADA', value: m.runPVT, unit: 'KiB', icon: '▤', detail: 'PVT do E3Run' },
-    { label: 'THREADS · E3RUN', value: m.runTRD, icon: '⌘', detail: 'Threads em execução' },
-    { label: 'FILA DE E/S', value: m.ioQueuePending, unit: 'pendentes', icon: '⌁', detail: `Atraso médio: ${format(m.ioQueueAvgDelay, 1)}` }
+  const card = (key, label, unit = '', digits = 0, detail = '') => ({key, label, value:m[key], unit, digits, detail, icon:'▣'});
+  return [
+    {title:'PERFORMANCE', subtitle:'E3RUN / SISTEMA', items:[
+      card('runCPU','CPU · E3Run','%',1), card('runMemory','Memória · Sistema','%',1),
+      card('runPVT','Memória privada · E3Run','KiB'), card('runTRD','Threads · E3Run'),
+      card('runHDL','Handles · E3Run'), card('runPageFaults','Page faults · E3Run','',0,'Valor publicado; não é taxa calculada')]},
+    {title:'SCRIPTS E EXECUÇÃO', subtitle:'E3RUN', items:[
+      card('runOccupancy','Ocupação · Scripts','%',1), card('runErrorsPerMinute','Erros · Scripts','/min',1),
+      card('runErrors','Erros acumulados'), card('runAvgScriptTime','Tempo médio · Script','',3,'Unidade publicada no PI'),
+      card('runUptimeMinutes','Tempo em execução','min',1)]},
+    {title:'EVENTOS LOCAIS', subtitle:'FILA LOCAL', items:[
+      card('runLocalPending','Pendentes · Local'), card('runDiscardedEvents','Eventos descartados','',0,'Contador publicado; não é percentual')]},
+    {title:'EVENTOS REMOTOS', subtitle:'FILA REMOTA', items:[
+      card('runRemotePending','Pendentes · Remoto'), card('remoteHandledRate','Tratados · Remoto','/min',1),
+      card('remoteDiscardedRate','Descartados · Remoto','/min',2), card('remoteDiscardPercent','Descarte · Remoto','%',2)]},
+    {title:'SERVIDOR', subtitle:'E3SERVER', items:[
+      card('serverCPU','CPU · E3Server','%',1), card('serverHDL','Handles · E3Server'),
+      card('serverPVT','Memória privada · E3Server','KiB'), card('serverStatus','Status · E3Server','',0,'Estado publicado; sem classificação presumida')]},
+    {title:'COLETA E E/S', subtitle:'PI', items:[
+      card('collectionTimestamp','Timestamp da coleta','',0,'Valor da tag CollectionTimeStamp'),
+      card('fileRead','Arquivo lido','',0,'Valor da tag FileRead'),
+      card('totalTime','Tempo total','s',3), card('ioQueuePending','Fila de E/S · Pendentes'),
+      card('ioQueueAvgDelay','Fila de E/S · Atraso médio','',3,'Unidade publicada no PI')]}
   ];
-  const events = [
-    { label: 'PENDENTES · LOCAL', value: m.runLocalPending, icon: '≋', detail: 'Eventos na fila local' },
-    { label: 'PENDENTES · REMOTE', value: m.runRemotePending, icon: '≋', detail: 'Eventos na fila remota' },
-    { label: 'OCUPAÇÃO · SCRIPTS', value: m.runOccupancy, unit: '%', digits: 1, icon: '⚙', detail: 'Ocupação do E3Run', progress: true },
-    { label: 'ERROS · SCRIPTS', value: m.runErrorsPerMinute, unit: '/min', digits: 0, icon: '◇', detail: 'Taxa publicada no PI' }
-  ];
-  return { performance, events };
+}
+function metricSections(groups) {
+  return groups.map(group => `<section class="metric-section" aria-label="${escapeHtml(group.title)}"><h2>${escapeHtml(group.title)} <span>${escapeHtml(group.subtitle)}</span></h2><div class="metric-grid">${metricCards(group.items)}</div></section>`).join('');
 }
 function renderDetail(server) {
-  const health = healthOf(server), m = visibleMetrics(server), valid = server.collecting && Number.isFinite(server.sampleTime) && server.sampleTime <= Date.now() && Date.now() - server.sampleTime <= HEALTH_LIMITS.staleSeconds * 1000;
-  const { performance, events } = serverMetricGroups(m);
-  const metadata = [server.site, server.environment, server.role].filter(Boolean).map(escapeHtml).join(' <span class="metadata-separator">/</span> ');
-  main.innerHTML = `<div class="overview"><div><a href="#overview" class="back-link">← Todos os servidores</a><h1>${escapeHtml(server.name)}<span>.</span></h1>${metadata ? `<p>${metadata}</p>` : ''}</div>${statusBadge(health.state)}</div>${serverAlarmPanel(server, health)}<div class="primary-grid"><section aria-labelledby="performance-title"><h2 id="performance-title">PERFORMANCE <span>E3RUN</span></h2><div class="metric-grid">${metricCards(performance)}</div></section><section aria-labelledby="events-title"><h2 id="events-title">EVENTOS <span>LOCAL / REMOTE</span></h2><div class="metric-grid">${metricCards(events)}</div></section><section aria-labelledby="process-title"><h2 id="process-title">PROCESSOS <span>STATUS</span></h2><div class="status-stack">${['E3RUN', 'E3SERVER'].map(process => `<article class="status-card"><div class="card-heading">${process} <span class="status-dot ${valid ? '' : 'unknown'}"></span></div><div class="process-info"><span class="process-icon">▣</span><span>${process === 'E3RUN' ? 'Runtime' : 'Servidor'}<small>${process === 'E3RUN' ? 'Processo de execução' : valid ? `CPU ${format(m.serverCPU, 1)}% · ${format(m.serverHDL)} handles` : 'Sem dados recentes'}</small></span></div><div class="status-banner ${valid ? '' : 'unknown'}">${valid ? 'MÉTRICAS DISPONÍVEIS NO PI' : 'ESTADO NÃO CONFIRMADO'}</div>${process === 'E3RUN' ? `<div class="status-bottom">Uptime <b>${uptime(m.runUptimeMinutes)}</b></div>` : ''}</article>`).join('')}</div></section><section aria-labelledby="quality-title"><h2 id="quality-title">COLETA <span>QUALIDADE</span></h2><div class="quality-card"><div class="card-heading">FONTE PI <span class="outline-label">${PI_DATA_STATE.simulated ? 'SIMULAÇÃO' : PI_DATA_STATE.source === 'af-sdk' ? 'AF SDK' : 'SDK COM'}</span></div><span class="quality-icon ${valid ? 'healthy' : 'unknown'}">${valid ? '✓' : '?'}</span><strong class="${health.state}">${valid ? 'AMOSTRA DISPONÍVEL' : 'SEM DADOS RECENTES'}</strong><p>${valid ? PI_DATA_STATE.simulated ? 'Amostras simuladas para avaliação' : 'Medições PI com qualidade válida' : 'Valores atuais não disponíveis'}</p><div class="quality-checks">${[['CPU', m.runCPU], ['RAM', m.runMemory], ['Erros', m.runErrorsPerMinute], ['Fila de E/S', m.ioQueuePending]].map(([label, value]) => `<span>${label} <b>${Number.isFinite(value) ? '✓' : '—'}</b></span>`).join('')}</div><dl><div><dt>Idade da amostra</dt><dd>${sampleAge(server)}</dd></div><div><dt>Tempo de leitura</dt><dd>${format(m.totalTime, 3)}${valid ? ' s' : ''}</dd></div><div><dt>Reset de contadores</dt><dd>—</dd></div></dl></div></section></div><section class="flow-section" aria-labelledby="flow-title"><div class="section-bar"><h2 id="flow-title">FLUXO DE EVENTOS · ${escapeHtml(server.name)}</h2><label>Janela do histórico <select id="window"><option value="15">Últimos 15 minutos</option><option value="30">Últimos 30 minutos</option><option value="60">Última hora</option></select></label></div><div class="flow-grid" id="flows"></div></section><section class="bottom-grid" aria-label="Recursos e informações da coleta"><article class="resource"><span class="resource-icon">▤</span><div><small>ESPAÇO LIVRE · C:</small><strong>${format(m.driveCFreeMB)} <em>${valid ? 'MB' : ''}</em></strong></div></article><article class="resource"><span class="resource-icon">⌁</span><div><small>FILA DE E/S</small><strong>${format(m.ioQueuePending)} <em>${valid ? 'pendentes' : ''}</em></strong></div><span class="resource-note">Atraso médio: ${format(m.ioQueueAvgDelay, 1)}</span></article><article class="resource"><span class="resource-icon">▧</span><div><small>ARQUIVO ETL</small><strong>${format(m.etlFileSizeMB, 1)} <em>${valid ? 'MB' : ''}</em></strong></div><span class="resource-note">Tamanho publicado no PI</span></article></section>`;
-  main.querySelector('.bottom-grid')?.remove();
-  renderFlows();
+  const health = healthOf(server), groups = serverMetricGroups(visibleMetrics(server));
+  const metadata = [server.site, server.environment, server.role].filter(Boolean).map(escapeHtml).join(' · ');
+  const available = groups.flatMap(group => group.items).filter(item => hasMetricValue(item.key,item.value)).length;
+  main.innerHTML = `<div class="overview"><div><a href="#overview" class="back-link">← Todos os servidores</a><h1>${escapeHtml(server.name)}<span>.</span></h1><p>${metadata}</p></div>${statusBadge(health.state)}</div>${serverAlarmPanel(server,health)}<p class="metric-summary">${available} de 26 pontos com dados válidos recentes · Amostra essencial: ${sampleAge(server)} · Valores sem qualidade ou vencidos aparecem como —</p><div class="primary-grid detail-metrics all-metrics">${metricSections(groups)}</div>`;
 }
 function renderRoute(moveFocus = false) {
   document.body?.classList.toggle('overview-page', !location.hash.startsWith('#server/'));
@@ -176,10 +180,9 @@ document.getElementById('pause').addEventListener('click', event => {
   event.currentTarget.setAttribute('aria-pressed', String(paused));
   renderConnectionState();
 });
-main.addEventListener('change', event => {
-  if (event.target.id === 'window') { historyMinutes = Number(event.target.value); renderFlows(SERVERS.find(s => s.id === activeServerId)); }
-});
 main.addEventListener('click', event => {
+  const metricPage = event.target.closest('[data-metric-page]');
+  if (metricPage) { overviewMetricPage = Number(metricPage.dataset.metricPage); renderFleet(); return; }
   const button = event.target.closest('button');
   if (!button) return;
   if (button.id === 'carousel-previous') carouselIndex = (carouselIndex - 1 + SERVERS.length) % SERVERS.length;

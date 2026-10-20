@@ -18,6 +18,16 @@ MAPPING = {
     'totalTime': 'TotalTime', 'runUptimeMinutes': 'E3Run.UpTimeMinutes',
     'remoteHandledRate': 'E3Run.RemoteHandledPerMinute',
     'remoteDiscardPercent': 'E3Run.RemoteDiscardPercent',
+    'runAvgScriptTime': 'E3Run.AvgScriptTime',
+    'runDiscardedEvents': 'E3Run.DiscardedEvents',
+    'runErrors': 'E3Run.Errors',
+    'runHDL': 'E3Run.HDL',
+    'runPageFaults': 'E3Run.PageFaults',
+    'remoteDiscardedRate': 'E3Run.RemoteDiscardedPerMinute',
+    'serverPVT': 'E3Server.PVT',
+    'collectionTimestamp': 'CollectionTimeStamp',
+    'fileRead': 'FileRead',
+    'serverStatus': 'E3Server.Status',
 }
 
 
@@ -53,10 +63,14 @@ class CogcgproConfigTests(unittest.TestCase):
             self.assertFalse(item.get('absoluteOutputs'))
             self.assertFalse(item.get('absoluteLimits'))
 
-    def test_all_48_mapped_inputs_are_read_and_unavailable_inputs_stay_empty(self):
+    def test_all_78_mapped_inputs_are_read_and_unavailable_inputs_stay_empty(self):
         requested = []
 
         class Client:
+            def read_value(self, tag):
+                requested.append(tag)
+                return {'value': 'Publicado no PI', 'timestamp': 100000, 'good': True, 'status': 'Good'}
+
             def read(self, tag):
                 requested.append(tag)
                 return {'value': 10.5, 'timestamp': 100000, 'good': True, 'status': 'Good'}
@@ -72,5 +86,8 @@ class CogcgproConfigTests(unittest.TestCase):
             for key in ['localEnteredRate', 'localHandledRate', 'localDiscardPercent', 'remoteEnteredRate', 'driveCFreeMB', 'etlFileSizeMB']:
                 self.assertIsNone(item['metrics'][key])
             self.assertEqual(item['histories'], {'local': [], 'remote': []})
-        self.assertEqual(len(requested), 48)
-        self.assertEqual(len(set(requested)), 48)
+            self.assertEqual(item['metrics']['serverStatus'], 'Publicado no PI')
+            self.assertEqual(item['metrics']['fileRead'], 'Publicado no PI')
+            self.assertEqual(item['metrics']['runHDL'], 10.5)
+        self.assertEqual(len(requested), 78)
+        self.assertEqual(len(set(requested)), 78)

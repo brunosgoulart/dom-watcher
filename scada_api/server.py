@@ -28,7 +28,11 @@ METRICS = (
     "etlFileSizeMB", "totalTime", "runUptimeMinutes",
     "localEnteredRate", "localHandledRate", "localDiscardPercent",
     "remoteEnteredRate", "remoteHandledRate", "remoteDiscardPercent",
+    "runAvgScriptTime", "runDiscardedEvents", "runErrors", "runHDL",
+    "runPageFaults", "remoteDiscardedRate", "serverPVT",
+    "collectionTimestamp", "fileRead", "serverStatus",
 )
+TEXT_METRICS = frozenset(("collectionTimestamp", "fileRead", "serverStatus"))
 ESSENTIAL = ("runCPU", "runMemory", "runErrorsPerMinute", "runLocalPending", "runRemotePending")
 PERCENTAGES = ("runCPU", "runMemory", "runOccupancy", "serverCPU", "localDiscardPercent", "remoteDiscardPercent")
 MAX_SERVERS = 7
@@ -148,10 +152,12 @@ def read_server(item: dict, client: PIReadClient, now_ms: float, stale_seconds: 
             result["metricQuality"][key] = {"good": False, "status": "NotConfigured", "timestamp": None}
             continue
         try:
-            sample = client.read(tags[key])
+            sample = client.read_value(tags[key]) if key in TEXT_METRICS else client.read(tags[key])
             value, stamp = sample["value"], sample["timestamp"]
-            valid = (sample["good"] and not isinstance(value, bool) and isinstance(value, (float, int)) and math.isfinite(value)
-                     and value >= 0 and not isinstance(stamp, bool) and isinstance(stamp, (float, int)) and math.isfinite(stamp)
+            numeric = not isinstance(value, bool) and isinstance(value, (float, int)) and math.isfinite(value) and value >= 0
+            typed = key in TEXT_METRICS and (isinstance(value, bool) or isinstance(value, str) and bool(value.strip()) or numeric)
+            valid = (sample["good"] and (typed if key in TEXT_METRICS else numeric)
+                     and not isinstance(stamp, bool) and isinstance(stamp, (float, int)) and math.isfinite(stamp)
                      and 0 <= now_ms - stamp <= stale_seconds * 1000)
             if key in PERCENTAGES and valid and value > 100:
                 valid = False
