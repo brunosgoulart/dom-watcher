@@ -8,6 +8,7 @@ Changes: Tested AF session reuse, recovery after snapshot failure and failed-con
 import json
 import threading
 import time
+import tempfile
 import unittest
 import sys
 from types import SimpleNamespace
@@ -105,6 +106,19 @@ class SnapshotTests(unittest.TestCase):
         store.publish(servers, "degraded")
         store.publish(servers, "degraded")
         self.assertEqual(len(store.get()["servers"][0]["histories"]["local"]), 1)
+
+    def test_alarm_history_persists_new_active_events_without_duplicates(self):
+        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+        with tempfile.TemporaryDirectory() as directory:
+            config["historyDbPath"] = str(Path(directory) / "history.sqlite3")
+            store = SnapshotStore(config)
+            server = {"id": "server1", "name": "Servidor 1", "trends": [{"metric": "runCPU", "label": "CPU", "state": 10, "reason": "Elevação sustentada"}], "absoluteAlarms": []}
+            store.record_active_alarms([server], 1000)
+            store.record_active_alarms([server], 2000)
+            history = store.alarm_history()
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["serverName"], "Servidor 1")
+        self.assertEqual(history[0]["state"], "warning")
 
     def test_http_status_and_no_write(self):
         config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")

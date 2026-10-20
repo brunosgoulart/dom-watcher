@@ -30,7 +30,7 @@ function healthOf(server, now = Date.now()) {
   if (['runCPU', 'runMemory', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'].some(key => !Number.isFinite(m[key]))) return unknown('Métricas essenciais ausentes na amostra.');
   if (!Array.isArray(server.trends) || !['runCPU', 'runMemory', 'runPVT', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'].every(key => server.trends.some(t => t.metric === key))) return unknown('Motor de tendências ainda indisponível.');
   const titles = { runCPU: 'Tendência de CPU', runMemory: 'Tendência de RAM', runPVT: 'Tendência de memória privada', runErrorsPerMinute: 'Tendência de erros', runLocalPending: 'Tendência da fila local', runRemotePending: 'Tendência da fila remota' };
-  const signals = server.trends.filter(t => t.state !== 0).map(t => ({
+  const signals = server.trends.filter(t => t.state !== 0 && (t.state >= 30 || !Number.isFinite(t.slope) || t.slope > 0)).map(t => ({
     metric: t.metric,
     state: t.state === 20 ? 'critical' : t.state === 10 ? 'warning' : 'unknown',
     stateLabel: t.state === 30 ? 'Histórico' : t.state === 40 ? 'Sem dados' : t.stateLabel,

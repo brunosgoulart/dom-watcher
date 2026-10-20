@@ -8,9 +8,11 @@ import copy
 import json
 import math
 import os
+import sqlite3
 import threading
 import time
 import tomllib
+from contextlib import closing
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -186,12 +188,43 @@ class SnapshotStore:
         self.publisher = TrendPublisher(config)
         self.absolute_publisher = TrendPublisher(config, "absoluteOutputs")
         self.trend_history_stamps: dict[tuple[str, str], float] = {}
+        self.active_alarm_signatures: set[tuple[str, str, str, str]] = set()
+        self.history_db = Path(config.get("historyDbPath", Path(__file__).with_name("runtime-history.sqlite3")))
+        self.history_db.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(self.history_db)) as connection, connection:
+            connection.execute("CREATE TABLE IF NOT EXISTS alarm_history (id INTEGER PRIMARY KEY, observed_at INTEGER NOT NULL, server_id TEXT NOT NULL, server_name TEXT NOT NULL, state TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL)")
+            connection.execute("CREATE INDEX IF NOT EXISTS alarm_history_observed_at ON alarm_history(observed_at DESC)")
         self.snapshot = {
             "schemaVersion": 1, "source": config.get("piAdapter", "pi-sdk-com"), "serviceStatus": "starting",
             "staleSeconds": config["staleSeconds"], "generatedAt": None,
             "trendPolicy": {"triggerMode": "sustained-rise", "continuitySeconds": 180, **{key: config.get("trend", {}).get(key, default) for key, default in (("measurementSeconds", 60), ("windowSeconds", 600), ("referenceSeconds", 1800), ("memoryWindowSeconds", 900), ("recoverySamples", 3))}},
-            "servers": [empty_server(s, "Aguardando configuração e leitura PI.") for s in config["servers"]],
+            "servers": [empty_server(s, "Aguardando configuração e leitura PI.") for s in config["servers"]], "alarmHistory": self.alarm_history(),
         }
+
+    def alarm_history(self, limit: int = 8) -> list[dict]:
+        with closing(sqlite3.connect(self.history_db)) as connection:
+            rows = connection.execute("SELECT observed_at, server_id, server_name, state, title, description FROM alarm_history ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [{"observedAt": row[0], "serverId": row[1], "serverName": row[2], "state": row[3], "title": row[4], "description": row[5]} for row in rows]
+
+    def record_active_alarms(self, servers: list, observed_at: int) -> None:
+        events = []
+        signatures = set()
+        for server in servers:
+            for alarm in [*server.get("trends", []), *server.get("absoluteAlarms", [])]:
+                state = alarm.get("state")
+                if state not in (10, 20):
+                    continue
+                title = str(alarm.get("label") or alarm.get("metric") or "Alarme")
+                description = str(alarm.get("reason") or alarm.get("stateLabel") or title)
+                signature = (server["id"], str(state), title, description)
+                signatures.add(signature)
+                if signature not in self.active_alarm_signatures:
+                    events.append((observed_at, server["id"], server.get("name", server["id"]), "critical" if state == 20 else "warning", title, description))
+        if events:
+            with closing(sqlite3.connect(self.history_db)) as connection, connection:
+                connection.executemany("INSERT INTO alarm_history(observed_at, server_id, server_name, state, title, description) VALUES (?, ?, ?, ?, ?, ?)", events)
+                connection.execute("DELETE FROM alarm_history WHERE id NOT IN (SELECT id FROM alarm_history ORDER BY id DESC LIMIT 2000)")
+        self.active_alarm_signatures = signatures
 
     def get(self) -> dict:
         with self.lock:
@@ -205,6 +238,7 @@ class SnapshotStore:
             item = next(item for item in self.config["servers"] if item["id"] == server["id"])
             server["absoluteAlarms"] = evaluate_absolute(item, server, now, self.config["staleSeconds"])
             self.absolute_publisher.publish(server["id"], server["absoluteAlarms"], client, now)
+        self.record_active_alarms(servers, int(now))
         with self.lock:
             previous = {s["id"]: s for s in self.snapshot["servers"]}
             for server in servers:
@@ -216,7 +250,7 @@ class SnapshotStore:
                         if not history or stamp > history[-1]["timestamp"]:
                             history = history + [dict(zip(("timestamp", "entered", "handled", "discard"), [stamp] + [server["metrics"][key] for key in fields]))]
                     server["histories"][kind] = history[-120:]
-            self.snapshot.update(servers=servers, serviceStatus=status, generatedAt=datetime.now(timezone.utc).isoformat())
+            self.snapshot.update(servers=servers, serviceStatus=status, generatedAt=datetime.now(timezone.utc).isoformat(), alarmHistory=self.alarm_history())
 
     def refresh_trends_from_pi(self, client: PIReadClient, servers: list) -> None:
         if client.adapter != "af-sdk":

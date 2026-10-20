@@ -8,6 +8,8 @@ let activeServerId = null;
 let carouselIndex = 0;
 let monitoringPage = 0;
 let overviewMetricPage = 0;
+let detailMetricPage = 0;
+let detailAlarmPage = 0;
 const CAROUSEL_INTERVAL_MS = 10000;
 const dashboardDateFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const dashboardTimeFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -34,11 +36,13 @@ function currentMetric(server, key, now = Date.now()) {
   return hasMetricValue(key, value) && (!quality || quality.good === true) && Number.isFinite(timestamp) && timestamp <= now && now - timestamp <= HEALTH_LIMITS.staleSeconds * 1000 ? value : null;
 }
 function visibleMetrics(server) { return Object.fromEntries(Object.keys(server.metrics || {}).map(key => [key, currentMetric(server, key)])); }
-function serverAlarmPanel(server, health) {
+function serverAlarmPanel(server, health, pageSize = Infinity, page = 0) {
   const points = { runCPU: ['E3Run.CPU', '%', 1], runMemory: ['Sistema.Memória', '%', 1], runPVT: ['E3Run.MemóriaPrivada', 'KiB', 0], runTRD: ['E3Run.Threads', 'threads', 0], runErrorsPerMinute: ['E3Run.ErrosScripts', 'erros/min', 1], runLocalPending: ['E3Run.FilaLocal', 'eventos', 0], runRemotePending: ['E3Run.FilaRemota', 'eventos', 0] };
   const activeCount = health.signals.filter(signal => ['critical', 'warning'].includes(signal.state)).length;
   const heading = activeCount ? `${activeCount} ${activeCount === 1 ? 'alarme ativo' : 'alarmes ativos'} neste servidor` : health.signals.length ? 'Diagnóstico dos alarmes' : 'Nenhum alarme ativo';
-  const rows = health.signals.map(signal => {
+  const pages = Math.max(1, Math.ceil(health.signals.length / pageSize));
+  const visibleSignals = health.signals.slice((page % pages) * pageSize, (page % pages) * pageSize + pageSize);
+  const rows = visibleSignals.map(signal => {
     const active = ['critical', 'warning'].includes(signal.state);
     const [point, unit, digits] = points[signal.metric] || [signal.title, '', 0];
     const value = active && signal.metric ? currentMetric(server, signal.metric) : null;
@@ -47,7 +51,8 @@ function serverAlarmPanel(server, health) {
     const text = `${point} - ${condition}${reading}`;
     return `<li class="detail-alarm ${signal.state}" title="${escapeHtml(signal.description || '')}"><span class="detail-alarm-icon" aria-hidden="true">${active ? '!' : '?'}</span><span class="detail-alarm-text">${escapeHtml(text)}</span><span class="detail-alarm-state">- ${active ? 'Ativo' : 'Indisponível'}</span></li>`;
   }).join('');
-  return `<section class="server-alerts ${health.state}" aria-label="Alarmes do servidor"><strong>${heading}</strong>${rows ? `<ul class="detail-alarm-list">${rows}</ul>` : '<p>Nenhum limite ou tendência de elevação ativo.</p>'}</section>`;
+  const pager = pages > 1 ? `<div class="detail-alarm-pages"><button type="button" data-detail-alarm-page="${(page - 1 + pages) % pages}" aria-label="Alarmes anteriores">←</button><span>${page % pages + 1} / ${pages}</span><button type="button" data-detail-alarm-page="${(page + 1) % pages}" aria-label="Próximos alarmes">→</button></div>` : '';
+  return `<section class="server-alerts ${health.state}" aria-label="Alarmes do servidor"><div class="detail-alarm-heading"><strong>${heading}</strong>${pager}</div>${rows ? `<ul class="detail-alarm-list">${rows}</ul>` : '<p>Nenhum limite ou tendência de elevação ativo.</p>'}</section>`;
 }
 function monitoringSeverityIcon(state) {
   const shape = state === 'critical'
@@ -58,9 +63,10 @@ function monitoringSeverityIcon(state) {
   return `<span class="monitoring-severity-icon" data-severity="${state}" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false">${shape}</svg></span>`;
 }
 function monitoringPanel() {
-  const signals = SERVERS.flatMap(server => healthOf(server).signals.map(signal => ({ ...signal, server })))
+  const signals = SERVERS.flatMap(server => healthOf(server).signals.filter(signal => ['critical', 'warning'].includes(signal.state)).map(signal => ({ ...signal, server })))
     .sort((a, b) => HEALTH_STATES[a.state].priority - HEALTH_STATES[b.state].priority || a.server.name.localeCompare(b.server.name));
-  const pages = Math.max(1, Math.ceil(signals.length / 2));
+  const historyEvents = PI_DATA_STATE.alarmHistory || [];
+  const pages = Math.max(1, Math.ceil(signals.length / 2), Math.ceil(historyEvents.length / 2));
   monitoringPage %= pages;
   const units = { runCPU: ['%', 1], runMemory: ['%', 1], runPVT: ['KiB', 0], runTRD: ['threads', 0], runErrorsPerMinute: ['/min', 1], runLocalPending: ['eventos', 0], runRemotePending: ['eventos', 0] };
   const labels = { runCPU: 'CPU', runMemory: 'RAM', runPVT: 'Memória privada', runTRD: 'Threads', runErrorsPerMinute: 'Erros', runLocalPending: 'Fila local', runRemotePending: 'Fila remota' };
@@ -69,9 +75,20 @@ function monitoringPanel() {
     const value = signal.state === 'unknown' ? null : currentMetric(signal.server, signal.metric);
     const rate = signal.state === 'unknown' ? '' : signal.description.split(' · ')[0];
     const explanation = rate.replace(/^↑ (.+?) por minuto$/, 'Aumento de $1 ponto percentual por minuto');
-    return `<a class="compact-alarm ${signal.state}" href="#server/${encodeURIComponent(signal.server.id)}" title="${escapeHtml(signal.description)}">${monitoringSeverityIcon(signal.state)}<div class="compact-alarm-top"><span>${escapeHtml(labels[signal.metric] || signal.title)}${signal.kind === 'absolute' ? ' · Limite' : ''}</span><span class="compact-alarm-state">${signal.stateLabel || HEALTH_STATES[signal.state].label}</span></div><strong>${format(value, digits)}${Number.isFinite(value) ? ` <small>${unit}</small>` : ''}</strong><span class="compact-alarm-rate" title="${escapeHtml(explanation)}">${escapeHtml(rate)}</span><span class="compact-alarm-server">${escapeHtml(signal.server.name)} <span>↗</span></span></a>`;
+    const timestamp = signal.server.metricQuality?.[signal.metric]?.timestamp || signal.server.sampleTime;
+    const observedAt = Number.isFinite(timestamp) ? new Date(timestamp).toLocaleTimeString('pt-BR') : 'Horário indisponível';
+    return `<a class="compact-alarm ${signal.state}" href="#server/${encodeURIComponent(signal.server.id)}" title="${escapeHtml(signal.description)}">${monitoringSeverityIcon(signal.state)}<div class="compact-alarm-top"><span>${escapeHtml(labels[signal.metric] || signal.title)}${signal.kind === 'absolute' ? ' · Limite' : ''}</span><span class="compact-alarm-state">${signal.stateLabel || HEALTH_STATES[signal.state].label}</span></div><strong>${format(value, digits)}${Number.isFinite(value) ? ` <small>${unit}</small>` : ''}</strong><span class="compact-alarm-rate" title="${escapeHtml(explanation)}">${escapeHtml(rate)}</span><span class="compact-alarm-message">${escapeHtml(signal.description)}</span><span class="compact-alarm-server">${escapeHtml(signal.server.name)} <span>${observedAt} ↗</span></span></a>`;
   }).join('');
-  return `<div class="compact-monitor-heading"><h2>MONITORAMENTO</h2><span>${signals.filter(s => s.state === 'critical').length} críticos · ${signals.filter(s => s.state === 'warning').length} atenção · ${signals.filter(s => s.state === 'unknown').length} sem dados</span></div><div class="compact-alarm-list">${cards || '<p class="healthy">Nenhuma sinalização ativa</p>'}</div><p class="compact-monitor-caption">${signals.length ? `Página ${monitoringPage + 1} de ${pages}` : ''}</p>`;
+  const updatedAt = PI_DATA_STATE.lastSuccess ? dashboardDateTime(new Date(PI_DATA_STATE.lastSuccess)) : dashboardDateTime();
+  const empty = `<div class="alarm-status-summary healthy"><strong>Nenhum alarme ativo</strong><p>${escapeHtml(PI_DATA_STATE.message || 'Aguardando estado operacional')}</p><dl><div><dt>Última atualização</dt><dd>${escapeHtml(updatedAt)}</dd></div></dl></div>`;
+  return `<div class="compact-monitor-heading"><h2>ALARMES DE TODOS OS SERVIDORES</h2><span>${signals.filter(s => s.state === 'critical').length} críticos · ${signals.filter(s => s.state === 'warning').length} atenção</span></div><section class="active-alarms"><h3>ATIVOS</h3><div class="compact-alarm-list">${cards || empty}</div><p class="compact-monitor-caption">${signals.length || historyEvents.length ? `Página ${monitoringPage + 1} de ${pages}` : `Atualizado: ${updatedAt}`}</p></section>${alarmHistoryPanel(historyEvents, monitoringPage)}`;
+}
+function renderMetricPageControls(pages, page, detail = false) {
+  document.getElementById('metric-page-controls').innerHTML = pages.map((label, index) => `<button type="button" ${detail ? `data-detail-metric-page="${index}"` : `data-metric-page="${index}"`} aria-pressed="${page === index}">${label}</button>`).join('');
+}
+function alarmHistoryPanel(events = PI_DATA_STATE.alarmHistory || [], page = 0) {
+  const rows = events.slice(page * 2, page * 2 + 2).map(event => `<a class="alarm-history-item ${event.state}" href="#server/${encodeURIComponent(event.serverId)}"><time>${new Date(event.observedAt).toLocaleString('pt-BR')}</time><strong>${escapeHtml(event.serverName)} · ${escapeHtml(event.title)}</strong><span>${escapeHtml(event.description)}</span></a>`).join('');
+  return `<section class="alarm-history" aria-label="Histórico de alarmes"><div class="alarm-history-heading"><h3>HISTÓRICO</h3><span>Últimos eventos</span></div><div class="alarm-history-list">${rows || '<p class="healthy">Nenhum evento de alarme registrado.</p>'}</div></section>`;
 }
 function renderFleet() {
   if (!SERVERS.length) {
@@ -83,21 +100,27 @@ function renderFleet() {
   const groups = serverMetricGroups(visibleMetrics(server));
   const pages = ['Runtime e scripts', 'Eventos', 'Servidor e coleta'];
   overviewMetricPage = ((overviewMetricPage % pages.length) + pages.length) % pages.length;
-  const navigation = `<nav class="metric-pages" aria-label="Grupos de métricas">${pages.map((label,index) => `<button type="button" data-metric-page="${index}" aria-pressed="${overviewMetricPage === index}">${label}</button>`).join('')}<span>${overviewMetricPage + 1} / ${pages.length} · 26 pontos por servidor</span></nav>`;
-  main.innerHTML = `<section class="server-carousel" aria-label="Carrossel de servidores"><div class="overview-top"><div class="carousel-identity"><p class="carousel-eyebrow">VISÃO GERAL · SERVIDOR ${carouselIndex + 1} DE ${SERVERS.length}</p><h1>${escapeHtml(server.name)}</h1><p>${escapeHtml(server.site)} · ${escapeHtml(server.environment)}</p><div class="carousel-controls"><a class="back-link" href="#server/${encodeURIComponent(server.id)}">Detalhes ↗</a><button id="carousel-previous" type="button" aria-label="Servidor anterior">←</button><button id="carousel-next" type="button" aria-label="Próximo servidor">→</button></div><div class="carousel-dots" aria-label="Selecionar servidor">${SERVERS.map((item, index) => `<button type="button" data-carousel-index="${index}" aria-label="Mostrar ${escapeHtml(item.name)}" aria-pressed="${index === carouselIndex}">${escapeHtml(item.name)}</button>`).join('')}</div></div><aside id="overview-monitoring" aria-label="Monitoramento de todos os servidores">${monitoringPanel()}</aside></div>${navigation}<div class="primary-grid carousel-metrics all-metrics">${metricSections(groups.slice(overviewMetricPage * 2, overviewMetricPage * 2 + 2))}</div><p class="carousel-caption">${!server.collecting ? 'Sem dados recentes · ' : ''}${paused ? 'Atualização pausada · ' : ''}Amostra: ${sampleAge(server)}</p></section>`;
+  renderMetricPageControls(pages, overviewMetricPage);
+  main.innerHTML = `<section class="server-carousel" aria-label="Carrossel de servidores"><div class="overview-top"><aside id="overview-monitoring" aria-label="Alarmes ativos e histórico">${monitoringPanel()}</aside></div><div class="metric-server-identity"><span>MEDIÇÕES EXIBIDAS</span><strong>${escapeHtml(server.name)}</strong><small>${escapeHtml([server.site, server.environment].filter(Boolean).join(' · '))}</small></div><div class="primary-grid carousel-metrics all-metrics">${metricSections(groups.slice(overviewMetricPage * 2, overviewMetricPage * 2 + 2))}</div><p class="carousel-caption">Servidor: ${escapeHtml(server.name)} · ${!server.collecting ? 'Sem dados recentes · ' : ''}${paused ? 'Atualização pausada · ' : ''}Amostra: ${sampleAge(server)}</p></section>`;
 }
 function advanceCarousel() {
   if (paused || activeServerId || !SERVERS.length || !document.getElementById('carousel-next')) return;
-  if (carouselIndex === SERVERS.length - 1) overviewMetricPage = (overviewMetricPage + 1) % 3;
-  carouselIndex = (carouselIndex + 1) % SERVERS.length;
+  overviewMetricPage = (overviewMetricPage + 1) % 3;
+  if (overviewMetricPage === 0) carouselIndex = (carouselIndex + 1) % SERVERS.length;
   renderFleet();
+}
+function metricBarWidth(metric) {
+  if (!Number.isFinite(metric.value)) return 0;
+  const scales = { runCPU: 100, runMemory: 100, runOccupancy: 100, remoteDiscardPercent: 100, runPVT: 2097152, serverPVT: 2097152, runTRD: 1000, runHDL: 10000, serverHDL: 10000, runErrorsPerMinute: 100, runErrors: 1000, runUptimeMinutes: 43200, runLocalPending: 1000, runRemotePending: 1000, runDiscardedEvents: 1000, remoteHandledRate: 1000, remoteDiscardedRate: 1000, totalTime: 60, ioQueuePending: 1000, ioQueueAvgDelay: 1000 };
+  return Math.round(Math.min(100, Math.max(0, metric.value / (scales[metric.key] || 100) * 100)));
 }
 function metricCards(metrics) {
   return metrics.map(m => {
     const available = hasMetricValue(m.key, m.value);
     const text = PI_TEXT_METRICS.has(m.key);
     const reading = !available ? '—' : text ? String(m.value) : format(m.value, Number(m.digits || 0));
-    return `<article class="metric-card ${text ? 'text-metric' : ''}" data-metric="${m.key}"><div class="card-heading">${escapeHtml(m.label)}</div><div class="metric-body"><strong class="metric-value" title="${escapeHtml(reading)}">${escapeHtml(reading)}<em>${available ? escapeHtml(m.unit || '') : ''}</em></strong></div><div class="metric-sub">${available ? escapeHtml(m.detail || 'Valor publicado no PI') : 'Sem dados válidos recentes'}</div></article>`;
+    const width = available && !text ? metricBarWidth(m) : 0;
+    return `<article class="metric-card ${text ? 'text-metric' : ''}" data-metric="${m.key}"><div class="card-heading">${escapeHtml(m.label)}</div><div class="metric-body"><strong class="metric-value" title="${escapeHtml(reading)}">${escapeHtml(reading)}<em>${available ? escapeHtml(m.unit || '') : ''}</em></strong></div><div class="metric-indicator" aria-label="${available ? `Leitura visual: ${width}%` : 'Sem leitura válida'}"><i style="width:${width}%"></i></div></article>`;
   }).join('');
 }
 function serverMetricGroups(m) {
@@ -133,10 +156,16 @@ function renderDetail(server) {
   const health = healthOf(server), groups = serverMetricGroups(visibleMetrics(server));
   const metadata = [server.site, server.environment, server.role].filter(Boolean).map(escapeHtml).join(' · ');
   const available = groups.flatMap(group => group.items).filter(item => hasMetricValue(item.key,item.value)).length;
-  main.innerHTML = `<div class="overview"><div><a href="#overview" class="back-link">← Todos os servidores</a><h1>${escapeHtml(server.name)}<span>.</span></h1><p>${metadata}</p></div>${statusBadge(health.state)}</div>${serverAlarmPanel(server,health)}<p class="metric-summary">${available} de 26 pontos com dados válidos recentes · Amostra essencial: ${sampleAge(server)} · Valores sem qualidade ou vencidos aparecem como —</p><div class="primary-grid detail-metrics all-metrics">${metricSections(groups)}</div>`;
+  const pages = ['Runtime e scripts', 'Eventos', 'Servidor e coleta'];
+  detailMetricPage = ((detailMetricPage % pages.length) + pages.length) % pages.length;
+  const alarmPages = Math.max(1, Math.ceil(health.signals.length / 2));
+  detailAlarmPage = ((detailAlarmPage % alarmPages) + alarmPages) % alarmPages;
+  renderMetricPageControls(pages, detailMetricPage, true);
+  main.innerHTML = `<section class="server-detail-carousel"><div class="overview"><div><a href="#overview" class="back-link">← Todos os servidores</a><h1>${escapeHtml(server.name)}<span>.</span></h1><p>${metadata}</p></div>${statusBadge(health.state)}</div>${serverAlarmPanel(server,health,2,detailAlarmPage)}<p class="metric-summary">${available} de 26 pontos com dados válidos recentes · Amostra essencial: ${sampleAge(server)} · Valores sem qualidade ou vencidos aparecem como —</p><div class="primary-grid detail-metrics all-metrics">${metricSections(groups.slice(detailMetricPage * 2, detailMetricPage * 2 + 2))}</div></section>`;
 }
 function renderRoute(moveFocus = false) {
   document.body?.classList.toggle('overview-page', !location.hash.startsWith('#server/'));
+  document.body?.classList.toggle('detail-page', location.hash.startsWith('#server/'));
   const hash = location.hash.slice(1);
   let id = null;
   try { if (hash.startsWith('server/')) id = decodeURIComponent(hash.slice(7)); } catch { id = '__invalid__'; }
@@ -174,6 +203,19 @@ function renderDataUpdate() {
   }
 }
 document.getElementById('server-select').addEventListener('change', event => { location.hash = event.target.value ? `server/${encodeURIComponent(event.target.value)}` : 'overview'; });
+document.getElementById('metric-page-controls').addEventListener('click', event => {
+  const detailMetricPageButton = event.target.closest('[data-detail-metric-page]');
+  if (detailMetricPageButton && activeServerId) {
+    detailMetricPage = Number(detailMetricPageButton.dataset.detailMetricPage);
+    renderDetail(SERVERS.find(server => server.id === activeServerId));
+    return;
+  }
+  const metricPage = event.target.closest('[data-metric-page]');
+  if (metricPage) {
+    overviewMetricPage = Number(metricPage.dataset.metricPage);
+    renderFleet();
+  }
+});
 document.getElementById('pause').addEventListener('click', event => {
   paused = !paused;
   event.currentTarget.textContent = paused ? 'Retomar atualização' : 'Pausar atualização';
@@ -181,6 +223,10 @@ document.getElementById('pause').addEventListener('click', event => {
   renderConnectionState();
 });
 main.addEventListener('click', event => {
+  const detailAlarmPageButton = event.target.closest('[data-detail-alarm-page]');
+  if (detailAlarmPageButton) { detailAlarmPage = Number(detailAlarmPageButton.dataset.detailAlarmPage); renderDetail(SERVERS.find(server => server.id === activeServerId)); return; }
+  const detailMetricPageButton = event.target.closest('[data-detail-metric-page]');
+  if (detailMetricPageButton) { detailMetricPage = Number(detailMetricPageButton.dataset.detailMetricPage); renderDetail(SERVERS.find(server => server.id === activeServerId)); return; }
   const metricPage = event.target.closest('[data-metric-page]');
   if (metricPage) { overviewMetricPage = Number(metricPage.dataset.metricPage); renderFleet(); return; }
   const button = event.target.closest('button');
@@ -205,7 +251,11 @@ setInterval(() => {
 }, CAROUSEL_INTERVAL_MS);
 setInterval(() => {
   if (document.activeElement?.closest('#main')) return;
-  if (activeServerId) renderDetail(SERVERS.find(server => server.id === activeServerId));
+  if (activeServerId) {
+    detailMetricPage = (detailMetricPage + 1) % 3;
+    detailAlarmPage++;
+    renderDetail(SERVERS.find(server => server.id === activeServerId));
+  }
   else renderFleet();
   renderConnectionState();
 }, 10000);

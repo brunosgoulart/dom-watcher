@@ -1,6 +1,6 @@
 /* PI API adapter contract and quality validation. */
 'use strict';
-const PI_DATA_STATE = { status: 'starting', message: 'Aguardando API PI', lastSuccess: null, policy: { triggerMode: 'sustained-rise', continuitySeconds: 180, measurementSeconds: 60, windowSeconds: 600, referenceSeconds: 1800, memoryWindowSeconds: 900, recoverySamples: 3 } };
+const PI_DATA_STATE = { status: 'starting', message: 'Aguardando API PI', lastSuccess: null, alarmHistory: [], policy: { triggerMode: 'sustained-rise', continuitySeconds: 180, measurementSeconds: 60, windowSeconds: 600, referenceSeconds: 1800, memoryWindowSeconds: 900, recoverySamples: 3 } };
 const PI_ESSENTIAL = ['runCPU', 'runMemory', 'runErrorsPerMinute', 'runLocalPending', 'runRemotePending'];
 function validTimestamp(value) { return Number.isFinite(value) && value > 0 && value <= Date.now(); }
 function normalizeStatus(payload) {
@@ -45,7 +45,8 @@ function normalizeStatus(payload) {
     const metricQuality = Object.fromEntries(Object.keys(metrics).map(key => [key, { good: hasMetricValue(key, metrics[key]), timestamp: validTimestamp(server.metricQuality?.[key]?.timestamp) ? server.metricQuality[key].timestamp : null }]));
     return { id: server.id, name: String(server.name || server.id), site: String(server.site || ''), environment: String(server.environment || ''), role: String(server.role || ''), sampleTime: validTimestamp(server.sampleTime) ? server.sampleTime : null, collecting, apiAvailable: true, metrics, metricQuality, histories, trends, absoluteAlarms, message: String(server.message || '') };
   });
-  return { servers, stale, policy };
+  const alarmHistory = (Array.isArray(payload.alarmHistory) ? payload.alarmHistory : []).filter(event => Number.isFinite(event?.observedAt) && typeof event.serverId === 'string' && typeof event.serverName === 'string' && ['critical', 'warning'].includes(event.state) && typeof event.title === 'string' && typeof event.description === 'string').slice(0, 8);
+  return { servers, stale, policy, alarmHistory };
 }
 function startDataSource(onUpdate, isPaused) {
   async function poll() {
@@ -61,6 +62,7 @@ function startDataSource(onUpdate, isPaused) {
         SCADA_SERVER_POSITIONS.splice(0, SCADA_SERVER_POSITIONS.length, ...normalized.servers.map(server => server.id));
         HEALTH_LIMITS.staleSeconds = normalized.stale;
         PI_DATA_STATE.policy = normalized.policy;
+        PI_DATA_STATE.alarmHistory = normalized.alarmHistory;
         PI_DATA_STATE.source = payload.source;
         PI_DATA_STATE.simulated = payload.source === 'simulated';
         PI_DATA_STATE.status = payload.serviceStatus;

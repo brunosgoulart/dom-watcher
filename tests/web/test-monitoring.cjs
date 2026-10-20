@@ -58,19 +58,19 @@ test('dashboard clock uses full Portuguese date and Sao Paulo time independently
   assert.match(vm.runInContext("document.getElementById('current-datetime').textContent", page.context), / - \d{2}:\d{2}:\d{2}$/);
 });
 
-test('overview cycles through all servers and keeps compact monitoring', () => {
+test('overview rotates metric pages before advancing to the next server and keeps compact monitoring', () => {
   const page = monitoring();
   assert.equal(page.intervals[0].milliseconds, 10000);
-  for (const id of ['COGCGPRO12', 'COGCGPRO34', 'COGCGPRO56']) {
-    assert.ok(page.html().includes('<h1>' + id + '</h1>'));
+  for (const id of ['COGCGPRO12', 'COGCGPRO12', 'COGCGPRO12', 'COGCGPRO34']) {
+    assert.ok(page.html().includes('aria-label="Alarmes ativos e histórico"'));
     assert.equal((page.html().match(/data-metric="/g) || []).length, 11);
-    assert.ok(page.html().includes('MONITORAMENTO'));
+    assert.ok(page.html().includes('ALARMES'));
     assert.doesNotMatch(page.html(), /Troca automática/);
     assert.ok(!page.html().includes('Limites demonstrativos'));
     assert.ok(!page.html().includes('SERVIDORES MONITORADOS'));
     page.intervals[0].callback();
   }
-  assert.ok(page.html().includes('<h1>COGCGPRO12</h1>'));
+  assert.ok(page.html().includes('aria-label="Alarmes ativos e histórico"'));
 });
 
 test('monitoring has distinct large symbols for critical, warning and unavailable states', () => {
