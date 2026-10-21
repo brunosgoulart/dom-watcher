@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scada_api'))
 from server import METRICS, SnapshotStore, make_handler
@@ -138,9 +139,11 @@ def simulated_servers(now_ms: float | None = None) -> list[dict]:
 def publish_simulation(store: SnapshotStore) -> None:
     while not store.stop.is_set():
         now_ms = time.time() * 1000
+        servers = simulated_servers(now_ms)
+        store.record_active_alarms(servers, int(now_ms))
         with store.lock:
             store.snapshot.update(
-                servers=simulated_servers(now_ms), serviceStatus="connected",
+                servers=servers, serviceStatus="connected", alarmHistory=store.alarm_history(),
                 generatedAt=datetime.now(timezone.utc).isoformat(),
             )
         store.stop.wait(3)
@@ -150,8 +153,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the local simulated SCADA dashboard preview.")
     parser.add_argument("--port", type=int, default=8769)
     args = parser.parse_args()
+    # Preview history must never read or contaminate the operational SQLite file.
+    with TemporaryDirectory(prefix="dom-watcher-preview-") as history_directory:
+        serve_preview(args.port, Path(history_directory) / "history.sqlite3")
+
+
+def serve_preview(port: int, history_path: Path) -> None:
     config = {
         "piAdapter": "simulated", "staleSeconds": 120, "enableWrites": False,
+        "historyDbPath": str(history_path),
         "servers": [{key: profile[key] for key in ("id", "name", "site", "environment", "role")} for profile in PROFILES],
     }
     store = SnapshotStore(config)
@@ -174,9 +184,9 @@ def main() -> None:
     class PreviewServer(ThreadingHTTPServer):
         allow_reuse_address = False
 
-    http_server = PreviewServer(("127.0.0.1", args.port), PreviewHandler)
+    http_server = PreviewServer(("127.0.0.1", port), PreviewHandler)
     worker.start()
-    print(f"Simulated SCADA preview: http://127.0.0.1:{args.port}/", flush=True)
+    print(f"Simulated SCADA preview: http://127.0.0.1:{port}/", flush=True)
     try:
         http_server.serve_forever()
     except KeyboardInterrupt:

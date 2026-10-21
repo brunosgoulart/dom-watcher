@@ -16,7 +16,9 @@ Acesse `http://127.0.0.1:8768/#overview`. A API e o painel atendem somente loopb
 
 O adaptador adotado é `piAdapter = "af-sdk"`, conforme a configuração de referência. Instale o AF SDK no host e configure `piAfSdkDll` com o caminho da DLL, se diferente do padrão.
 
-As 26 tags disponíveis de COGCGPRO12, COGCGPRO34 e COGCGPRO56 estão mapeadas em `scada_api/config.toml` e `scada_api/config.cogcgpro.toml` (78 entradas, sem escrita). A visão geral alterna entre três grupos de apresentação, com seleção manual; a página individual reúne os 26 pontos em seis seções. Timestamp de coleta, arquivo lido e status preservam o conteúdo publicado no PI. Não substitua uma configuração operacional existente sem preservar seus parâmetros. Consulte as verificações de unidades em `scada_api/README.md`.
+As 26 tags disponíveis de COGCGPRO12, COGCGPRO34 e COGCGPRO56 estão mapeadas em `scada_api/config.toml` e `scada_api/config.cogcgpro.toml` (78 entradas, sem escrita). As duas telas apresentam seis seções distribuídas em três grupos selecionáveis. Na visão geral, o carrossel percorre os três grupos antes de mudar de servidor. Timestamp de coleta, arquivo lido e status preservam o conteúdo publicado no PI. Não substitua uma configuração operacional existente sem preservar seus parâmetros. Consulte as verificações de unidades em `scada_api/README.md`.
+
+O visual usa superfícies grafite, navegação verde e sinalizações de severidade com cor e texto, inspirado no [UptimeRobot](https://uptimerobot.com/). Alarmes ativos e histórico são separados; ausência de dados nunca é apresentada como normalidade. A conexão AF SDK, as tags e os limites não são alterados pelo tema.
 
 `--check-config` verifica configuração e dependências locais sem conectar ao historiador nem escrever. Retorna código 0 quando essas verificações passam e 2 quando há pendências; não comprova autenticação nem existência das tags. Use o mesmo Python que executará o serviço. A tela mostra as medições válidas individualmente, mesmo durante a formação do histórico das tendências; dados vencidos ou sem qualidade não são exibidos como atuais.
 

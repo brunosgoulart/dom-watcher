@@ -1,6 +1,6 @@
 # Runtime Monitor
 
-Atualizado em: 19/10/2026.
+Atualizado em: 21/10/2026.
 
 ## Manutenção
 
@@ -75,7 +75,9 @@ Não foram informadas tags de taxas de entrada/tratamento/descarte percentual lo
 
 ### Apresentação das métricas
 
-Na visão geral, Runtime e scripts, Eventos e Servidor e coleta são páginas selecionáveis de métricas. O carrossel percorre os servidores a cada 10 s e avança o grupo ao completar uma volta, cobrindo todas as combinações. A pausa global também pausa essa alternância. Em 1280×720 a visão geral cabe sem rolagem; descrições auxiliares ficam ocultas em telas baixas, e valores textuais completos estão no título do cartão. A página individual reúne os 26 pontos em seis seções responsivas e permite rolagem para leitura detalhada. Status e metadados são escapados como texto, nunca HTML. Não são criados alarmes adicionais para as novas entradas.
+Nas duas telas, Runtime e scripts, Eventos e Servidor e coleta são páginas selecionáveis com os 26 pontos distribuídos em seis seções. Na visão geral, a cada 10 s o carrossel avança o grupo; depois dos três grupos, passa ao próximo servidor. Na página individual, alternam os grupos e as páginas dos alarmes daquele servidor. A pausa global e o foco em controles dos painéis suspendem a rotação. Ambas as telas foram conferidas sem rolagem em 1280×720 e em Full HD; telas menores permitem rolagem vertical. Valores textuais completos permanecem no título do valor. Status e metadados são escapados como texto, nunca HTML. Não são criados alarmes adicionais para as novas entradas.
+
+Os cartões herdam a maior severidade de alarme da respectiva métrica. Dados ausentes têm indicação “Sem dados”; uma medição recente com análise indisponível mostra “Análise pendente”. Valores sem alarme ficam neutros. Somente percentuais têm barras proporcionais de 0–100; não são presumidos máximos para threads, handles, contadores ou tempos.
 
 Parâmetros globais:
 
@@ -188,21 +190,21 @@ A publicação usa `UpdateValue`, timestamp atual PI e substituição de duplica
 
 `GET /api/v1/status` expõe o cache, qualidade, timestamps, históricos, tendências, limites absolutos, diagnóstico de publicação e política de análise. `source` aceita somente `af-sdk` e `pi-sdk-com`. Não existe API HTTP de mutação. Arquivos fora de `web/` não são servidos; listagem de diretórios é bloqueada.
 
-O navegador consulta a cada 10 s, com timeout de 8 s. A visão geral alterna os servidores a cada 10 s; o Monitoramento mostra dois alarmes por página com rotação independente. Existem seleção direta, navegação anterior/próximo e pausa. A pausa global suspende atualização e rotação no navegador, não aquisição/cálculo/publicação do serviço. Os cartões absolutos são identificados como “Limite”.
+O navegador consulta a cada 10 s, com timeout de 8 s. O Monitoramento mostra dois alarmes ativos por página e dois eventos históricos por página, com índices independentes: um histórico mais longo não produz páginas vazias de alarmes ativos. Existem seleção direta de servidor, navegação anterior/próximo e pausa. A pausa global suspende consulta e rotação no navegador, não aquisição/cálculo/publicação do serviço; a validade das leituras continua sendo reavaliada. Os cartões absolutos são identificados como “Limite”.
 
-O cabeçalho unifica a identificação em um único grupo com um ícone de gráfico: “DASHBOARD DE”, “performance SCADA” e “Runtime Elipse E3 e Power”, com hierarquia tipográfica e acabamento em tons frios. Runtime Monitor identifica as abas de visão geral e de servidor. A interface não exibe avisos de “troca automática a cada X segundos”: o Monitoramento mantém somente a paginação, e a legenda dos servidores mantém a idade da amostra e o aviso de atualização pausada, quando aplicável. Os intervalos e a rotação permanecem inalterados. Marcação do título único e remoção desses avisos cobertas pelas 14 verificações JavaScript aprovadas nesta revisão.
+O cabeçalho unifica a identificação em um único grupo com um ícone de gráfico: “DASHBOARD DE”, “performance SCADA” e “Runtime Elipse E3 e Power”. Runtime Monitor identifica as abas de visão geral e de servidor. O tema é inspirado na página e na demonstração pública de status do [UptimeRobot](https://uptimerobot.com/): superfícies grafite, verde vivo para navegação/estado confirmado sem alarmes, bordas suaves, indicadores com texto e separação de ativos/histórico. Não usa bibliotecas, fontes remotas, rastreamento ou integração com esse serviço.
 
-Na visão geral de desktop, os cartões de métricas usam altura compacta responsiva de 135–165 px e títulos discretos de 14–20 px, com espaçamento interno reduzido. A identificação principal do servidor usa 30–42 px; os nomes no Monitoramento usam 20–28 px e peso 700. Não há botão de pausa exclusivo do carrossel; permanecem setas, seleção direta e pausa global. Valores, unidades e regras dos alarmes não foram alterados por esse ajuste visual.
+As alturas dos cartões se ajustam ao espaço da janela; fontes aumentam em monitores Full HD. Os seletores de servidor apresentam o estado por cor e texto. O Monitoramento exibe contagens de críticos, atenção e servidores com diagnóstico pendente. Quando faltam dados ou histórico de análise, mostra “Estado não confirmado”, nunca um sinal verde de normalidade. A interface não exibe avisos de “troca automática a cada X segundos”; mantém paginação, idade da amostra e pausa global, sem botão de pausa exclusivo do carrossel.
 
-Os cartões de Monitoramento possuem símbolos vetoriais grandes (44–64 px), adequados para identificação à distância: octógono com exclamação em crítico, triângulo com exclamação em atenção e círculo com interrogação quando indisponível. Forma, cor e texto são redundantes; não há piscadas nem mudança de prioridade. Os símbolos são decorativos para leitores de tela, que continuam recebendo o estado em texto.
+Os cartões de Monitoramento usam símbolos vetoriais responsivos (30–44 px): octógono com exclamação em crítico e triângulo com exclamação em atenção. Indisponibilidade usa interrogação e texto explícito. Forma, cor e texto são redundantes; não há piscadas nem mudança de prioridade. Os símbolos são decorativos para leitores de tela, que continuam recebendo o estado em texto. A navegação por teclado possui foco visível.
 
 A faixa de conexão mantém a data completa e a hora atual sempre visíveis, atualizadas a cada segundo no fuso `America/Sao_Paulo`, no formato `domingo, 18 de outubro de 2026 - 19:05:48`. A mensagem da origem/conexão e o horário da última resposta ficam em um painel aberto pelo ícone de informações, acionável por clique ou teclado. O relógio usa o horário do computador do navegador e continua funcionando durante a pausa de atualização; ele não comprova atualidade dos dados PI. Os status continuam atualizando mesmo quando o painel de informações está fechado.
 
-As páginas individuais exibem Performance, Eventos, Processos, Qualidade e Recursos. Gráficos de filas acumulam até 120 amostras por fila/servidor em memória; não há consulta histórica retroativa ao PI. O layout de desktop distribui a visão geral na janela; telas estreitas permitem rolagem.
+As seções de métricas são Performance, Scripts e execução, Eventos locais, Eventos remotos, Servidor e Coleta e E/S. Não são mostrados percentuais de disponibilidade nem gráficos de uptime: esses indicadores não são calculados pela aplicação.
 
 O cabeçalho da página individual apresenta os alarmes em linhas operacionais: ponto, condição, valor atual e estado. Formato percentual absoluto: `E3Run.CPU - Percentual Muito Alto (95,0 %) - Ativo`. Tendências usam “Tendência de Elevação”; métricas não percentuais usam suas unidades próprias. Dados/histórico indisponíveis são identificados como “Indisponível”, não contam como alarmes ativos e não reutilizam valores antigos. Os nomes dos pontos apresentados são rótulos da interface, não substituem os endereços PI configurados. Falhas de publicação continuam sinalizadas; detalhes técnicos permanecem no tooltip e na API. Não há reconhecimento de alarmes nem alteração de limites por essa apresentação.
 
-Históricos e estados internos não persistem após reinício. A janela de tendência precisa ser reconstruída. O histórico do PI não é apagado. O servidor HTTP atende somente loopback, sem autenticação; acesso remoto depende de proxy controlado, TLS e autenticação corporativa. O timeout do navegador não cancela chamadas COM nativas.
+O histórico de alarmes trazido pela versão base persiste em `runtime-history.sqlite3` (caminho alternativo: `historyDbPath`), retém até 2.000 eventos e fornece os oito mais recentes à interface. Eventos históricos não comprovam alarmes ainda ativos. Os estados internos das análises continuam em memória; o AF SDK pode recompor as janelas com leituras interpoladas do PI. O histórico do PI não é apagado. O servidor HTTP atende somente loopback, sem autenticação; acesso remoto depende de proxy controlado, TLS e autenticação corporativa. O timeout do navegador não cancela chamadas COM nativas.
 
 ## Execução
 
@@ -239,7 +241,7 @@ Cada medição é apresentada conforme sua própria qualidade e timestamp, sem e
 
 Para inspeção visual, execute `python -B tools/interface_preview.py --port 8769` a partir da raiz e abra `http://127.0.0.1:8769/#overview`. A ferramenta fica em `tools/`, não carrega `config.toml`, não conecta ao PI e não escreve saídas. O serviço operacional permanece na porta 8768.
 
-A prévia fornece COGCGPRO12, COGCGPRO34 e COGCGPRO56, com os 26 pontos selecionados, cenários de tendência pré-definidos e limites absolutos de CPU/RAM em 90% exclusivamente para avaliação visual. COGCGPRO12 tem CPU estável em aproximadamente 95%, sem tendência CPU e com alarme absoluto. A ferramenta não comprova o algoritmo de tendências nem define limites operacionais.
+A prévia fornece COGCGPRO12, COGCGPRO34 e COGCGPRO56, com os 26 pontos selecionados, cenários de tendência pré-definidos e limites absolutos de CPU/RAM em 90% exclusivamente para avaliação visual. COGCGPRO12 tem CPU estável em aproximadamente 95%, sem tendência CPU e com alarme absoluto. O histórico simulado usa um SQLite temporário próprio, sem ler nem modificar o histórico operacional. A ferramenta não comprova o algoritmo de tendências nem define limites operacionais.
 
 Apenas a prévia serve `pi-config.js` com `allowSimulatedData=true`. O arquivo operacional mantém `false` e rejeita essa origem. A interface identifica explicitamente `SIMULAÇÃO LOCAL`, incluindo tela individual e rodapé. Os campos e parâmetros operacionais permanecem sem nomenclatura de demonstração; a funcionalidade isolada existe somente para esta inspeção.
 
@@ -254,7 +256,7 @@ node --test tests/web/test-*.cjs
 
 Node.js só é necessário para as verificações do frontend. As verificações Python isolam dependências SDK com mocks, inclusive a existência da DLL; não comprovam disponibilidade da DLL real nem autenticação, leitura ou escrita PI no ambiente.
 
-Verificação do serviço: 56 verificações Python aprovadas; a integração HTTP local é exercitada sem acessar o PI. Verificação da apresentação em 18/10/2026: 14 verificações JavaScript aprovadas, incluindo painel acessível de informações da conexão e relógio no fuso de São Paulo e independente da pausa, símbolos de severidade, formato das linhas de alarme, distinção de tendência/limite e separação entre ativo e indisponível. Incluem a geração isolada dos três servidores e a rejeição da origem simulada pelo frontend operacional. Prévia na porta 8769 conferida no navegador com valores e alarmes absolutos/tendência. Comunicação e permissões de escrita foram preservadas. A configuração local foi renomeada sem alterar os parâmetros de conexão, consulta ou publicação; apenas os metadados do servidor foram padronizados.
+Verificação em 21/10/2026: 71 verificações Python aprovadas em cópia temporária isolada (para preservar o SQLite operacional) e 24 verificações JavaScript aprovadas. Cobrem as 26 métricas, rejeição de simulação na origem operacional, distinção entre tendência/limite/indisponibilidade, paginação independente de ativos e histórico, pausa e foco de teclado. A prévia isolada na porta 8771 foi conferida no navegador em 1280×720, 1920×1080 e 390×844, incluindo seleção de servidor, grupos de métricas, histórico e alarmes. AF SDK, `pidatapro`, tags, limites e permissões de escrita foram preservados. Não foi realizada conexão real ao PI nesta revisão visual.
 
 ## Pendências de implantação
 
@@ -278,7 +280,7 @@ Implementado e verificado no código:
 
 Antes da liberação no ambiente:
 
-- [ ] Preencher PI Data Archive, inventário real, entradas e saídas aprovadas.
+- [ ] Confirmar no ambiente o PI Data Archive, o inventário e as entradas já mapeadas; aprovar saídas somente se houver publicação.
 - [ ] Conferir unidades, qualidade e timestamps; assegurar publicação das entradas a cada 60 s e políticas de exceção/compressão.
 - [ ] Instalar e verificar SDK, DLL, arquitetura e dependências no host de execução.
 - [ ] Validar autenticação e permissões da conta Windows.
@@ -290,5 +292,5 @@ Antes da liberação no ambiente:
 - [ ] Implantar proxy/TLS/autenticação e firewall se houver acesso de outra máquina.
 - [ ] Validar apresentação na TV e registrar aprovação operacional.
 
-Limitações a avaliar: persistência/restauração de estados; leitura histórica; isolamento de chamadas COM bloqueadas; confirmação de escrita por releitura. A existência de código e verificações locais não substitui o comissionamento no PI.
+Limitações a avaliar: restauração dos estados das análises; política de backup do SQLite; isolamento de chamadas COM bloqueadas; confirmação de escrita por releitura. A existência de código e verificações locais não substitui o comissionamento no PI.
 

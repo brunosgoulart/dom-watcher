@@ -61,9 +61,11 @@ test('dashboard clock uses full Portuguese date and Sao Paulo time independently
 test('overview rotates metric pages before advancing to the next server and keeps compact monitoring', () => {
   const page = monitoring();
   assert.equal(page.intervals[0].milliseconds, 10000);
-  for (const id of ['COGCGPRO12', 'COGCGPRO12', 'COGCGPRO12', 'COGCGPRO34']) {
+  for (const [id, count] of [['COGCGPRO12', 11], ['COGCGPRO12', 6], ['COGCGPRO12', 9], ['COGCGPRO34', 11]]) {
     assert.ok(page.html().includes('aria-label="Alarmes ativos e histórico"'));
-    assert.equal((page.html().match(/data-metric="/g) || []).length, 11);
+    assert.equal((page.html().match(/data-metric="/g) || []).length, count);
+    assert.equal(vm.runInContext('SERVERS[carouselIndex].id', page.context), id);
+    assert.match(page.html(), /id="carousel-next"/);
     assert.ok(page.html().includes('ALARMES'));
     assert.doesNotMatch(page.html(), /Troca automática/);
     assert.ok(!page.html().includes('Limites demonstrativos'));
@@ -132,11 +134,12 @@ test('carousel has no dedicated pause button and respects global pause and serve
   const page = monitoring();
   const initial = page.html();
   assert.doesNotMatch(initial, /carousel-pause|Pausar carrossel/);
-  for (const expression of ['paused = true', 'paused = false; activeServerId = "COGCGPRO12"']) {
-    vm.runInContext(expression, page.context);
-    page.intervals[0].callback();
-    assert.equal(page.html(), initial);
-  }
+  vm.runInContext('paused = true', page.context);
+  page.intervals[0].callback();
+  assert.equal(page.html(), initial);
+  vm.runInContext('paused = false; activeServerId = "COGCGPRO12"', page.context);
+  page.intervals[0].callback();
+  assert.equal(vm.runInContext('carouselIndex', page.context), 0);
 });
 
 test('fresh real measurements remain visible during trend warmup and partial collection', () => {
@@ -186,12 +189,17 @@ test('all 26 metrics are accessible for every server across the overview carouse
 
 test('detail displays all metrics and escapes metadata without inventing process health', () => {
   const page = monitoring();
-  vm.runInContext(`SERVERS[0].metrics.fileRead='<img src=x onerror=alert(1)>'; SERVERS[0].metrics.serverStatus='Operando'; renderDetail(SERVERS[0])`,page.context);
-  assert.equal((page.html().match(/data-metric="/g)||[]).length,26);
-  assert.match(page.html(),/&lt;img/);
-  assert.doesNotMatch(page.html(),/<img/);
-  assert.match(page.html(),/Operando/);
-  assert.doesNotMatch(page.html(),/ESPAÇO LIVRE|ARQUIVO ETL|Reset de contadores|MÉTRICAS DISPONÍVEIS NO PI/);
+  vm.runInContext(`SERVERS[0].metrics.fileRead='<img src=x onerror=alert(1)>'; SERVERS[0].metrics.serverStatus='Operando'`,page.context);
+  let combined = '';
+  for (let index = 0; index < 3; index++) {
+    vm.runInContext(`detailMetricPage=${index}; renderDetail(SERVERS[0])`,page.context);
+    combined += page.html();
+  }
+  assert.equal((combined.match(/data-metric="/g)||[]).length,26);
+  assert.match(combined,/&lt;img/);
+  assert.doesNotMatch(combined,/<img/);
+  assert.match(combined,/Operando/);
+  assert.doesNotMatch(combined,/ESPAÇO LIVRE|ARQUIVO ETL|Reset de contadores|MÉTRICAS DISPONÍVEIS NO PI/);
 });
 
 test('metric groups also rotate when only one server is configured', () => {
@@ -201,4 +209,65 @@ test('metric groups also rotate when only one server is configured', () => {
   assert.match(page.html(),/2 \/ 3 · 26 pontos/);
   page.intervals[0].callback();
   assert.match(page.html(),/3 \/ 3 · 26 pontos/);
+});
+
+test('active alarms and history rotate independently without empty pages', () => {
+  const page = monitoring();
+  vm.runInContext(`
+    SERVERS.splice(1);
+    SERVERS[0].trends.splice(1).forEach(t => SERVERS[0].trends.push({...t,state:0}));
+    PI_DATA_STATE.alarmHistory = Array.from({length:8}, (_,i)=>({serverId:'COGCGPRO12',serverName:'COGCGPRO12',state:'warning',title:'Evento '+i,description:'Elevação',observedAt:Date.now()}));
+  `, page.context);
+  const seen = new Set();
+  for (let index=0; index<8; index++) {
+    const html = vm.runInContext(`monitoringPage=${index}; monitoringPanel()`, page.context);
+    assert.equal((html.match(/class="compact-alarm warning"/g)||[]).length,1);
+    assert.equal((html.match(/class="alarm-history-item warning"/g)||[]).length,2);
+    assert.doesNotMatch(html,/Nenhum alarme ativo/);
+    for (const title of html.matchAll(/Evento (\d)/g)) seen.add(title[1]);
+  }
+  assert.equal(seen.size,8);
+});
+
+test('unavailable or warming up data never produces a green all-clear', () => {
+  const page = monitoring();
+  vm.runInContext('SERVERS.forEach(s=>s.trends.forEach(t=>{t.state=0})); renderFleet()',page.context);
+  assert.match(page.html(),/alarm-status-summary healthy/);
+  vm.runInContext('SERVERS[0].trends[0].state=30; SERVERS[0].trends[0].reason="Histórico insuficiente"; renderFleet()',page.context);
+  assert.match(page.html(),/alarm-status-summary unknown/);
+  assert.doesNotMatch(page.html(),/alarm-status-summary healthy/);
+  assert.match(page.html(),/1 com diagnóstico pendente/);
+  vm.runInContext('SERVERS.forEach(s=>{s.collecting=false;s.apiAvailable=false}); renderFleet()',page.context);
+  assert.match(page.html(),/3 com diagnóstico pendente/);
+  assert.doesNotMatch(page.html(),/Nenhum alarme ativo/);
+});
+
+test('cards reflect alarm states and only actual percentages get a proportional indicator', () => {
+  const page = monitoring();
+  const html = vm.runInContext(`metricCards([
+    {key:'runCPU',label:'CPU',unit:'%',value:95},
+    {key:'runTRD',label:'Threads',value:200},
+    {key:'serverStatus',label:'Status',value:'Ativo'},
+    {key:'runMemory',label:'Memória',unit:'%',value:null}
+  ], {signals:[{metric:'runCPU',state:'critical'},{metric:'runTRD',state:'warning'}]})`,page.context);
+  assert.match(html,/metric-card critical/);
+  assert.match(html,/metric-card warning/);
+  assert.match(html,/metric-card neutral text-metric/);
+  assert.match(html,/metric-card unknown/);
+  assert.equal((html.match(/class="metric-indicator"/g)||[]).length,1);
+  assert.match(html,/width:95%/);
+  assert.match(html,/Sem dados/);
+});
+
+test('detail rotation respects global pause and keyboard focus', () => {
+  const page = monitoring();
+  vm.runInContext('activeServerId="COGCGPRO12"; paused=true; renderDetail(SERVERS[0])',page.context);
+  page.intervals[0].callback();
+  assert.equal(vm.runInContext('detailMetricPage',page.context),0);
+  vm.runInContext('paused=false; document.activeElement={closest:()=>true}',page.context);
+  page.intervals[0].callback();
+  assert.equal(vm.runInContext('detailMetricPage',page.context),0);
+  vm.runInContext('document.activeElement=null',page.context);
+  page.intervals[0].callback();
+  assert.equal(vm.runInContext('detailMetricPage',page.context),1);
 });
