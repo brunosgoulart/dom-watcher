@@ -66,7 +66,7 @@ test('overview rotates metric pages before advancing to the next server and keep
     assert.equal((page.html().match(/data-metric="/g) || []).length, count);
     assert.equal(vm.runInContext('SERVERS[carouselIndex].id', page.context), id);
     assert.match(page.html(), /id="carousel-next"/);
-    assert.ok(page.html().includes('ALARMES'));
+    assert.ok(page.html().includes('Monitoramento'));
     assert.doesNotMatch(page.html(), /Troca automática/);
     assert.ok(!page.html().includes('Limites demonstrativos'));
     assert.ok(!page.html().includes('SERVIDORES MONITORADOS'));
@@ -75,7 +75,7 @@ test('overview rotates metric pages before advancing to the next server and keep
   assert.ok(page.html().includes('aria-label="Alarmes ativos e histórico"'));
 });
 
-test('monitoring has distinct large symbols for critical, warning and unavailable states', () => {
+test('monitoring has distinct symbols for critical, warning and unavailable states', () => {
   const page = monitoring();
   for (const state of ['critical', 'warning', 'unknown']) {
     const symbol = vm.runInContext(`monitoringSeverityIcon('${state}')`, page.context);
@@ -270,4 +270,51 @@ test('detail rotation respects global pause and keyboard focus', () => {
   vm.runInContext('document.activeElement=null',page.context);
   page.intervals[0].callback();
   assert.equal(vm.runInContext('detailMetricPage',page.context),1);
+});
+
+test('reading context counts fresh points separately from process alarm severity', () => {
+  const page = monitoring();
+  const html = vm.runInContext('readingContext(SERVERS)',page.context);
+  assert.match(html,/data-reading-state="partial"/);
+  assert.match(html,/18 \/ 78 pontos · 3 servidores/);
+  vm.runInContext('SERVERS[0].metricQuality={runCPU:{good:false,timestamp:Date.now()}}',page.context);
+  assert.equal(vm.runInContext('readingCoverage(SERVERS).available',page.context),17);
+  vm.runInContext('SERVERS[1].sampleTime=Date.now()-121000; SERVERS[2].apiAvailable=false',page.context);
+  assert.equal(vm.runInContext('readingCoverage(SERVERS).available',page.context),5);
+  vm.runInContext('SERVERS[0].apiAvailable=false',page.context);
+  assert.match(vm.runInContext('readingContext(SERVERS)',page.context),/Sem leituras recentes/);
+  vm.runInContext('paused=true',page.context);
+  assert.match(vm.runInContext('readingContext(SERVERS)',page.context),/Atualização pausada/);
+});
+
+test('complete fresh readings are not interpreted as absence of alarms', () => {
+  const page = monitoring();
+  vm.runInContext(`SERVERS.forEach(server=>{
+    const points=serverMetricGroups({}).flatMap(group=>group.items);
+    server.metrics=Object.fromEntries(points.map(point=>[point.key,10]));
+  }); renderFleet()`,page.context);
+  assert.match(page.html(),/data-reading-state="complete"/);
+  assert.match(page.html(),/78 \/ 78 pontos/);
+  assert.match(page.html(),/18 alarmes ativos em 3 servidores/);
+  assert.doesNotMatch(page.html(),/Nenhum alarme ativo/);
+});
+
+test('alarm type symbols distinguish absolute limits from rising trends', () => {
+  const page = monitoring();
+  vm.runInContext('SERVERS[0].absoluteAlarms=[{metric:"runCPU",limit:9,state:20,timestamp:Date.now()}]',page.context);
+  const html=vm.runInContext('monitoringPanel()',page.context);
+  assert.match(html,/data-alarm-kind="absolute"/);
+  assert.match(html,/data-alarm-kind="trend"/);
+  assert.notEqual(vm.runInContext('contextIcon("absolute")',page.context),vm.runInContext('contextIcon("trend")',page.context));
+});
+
+test('history uses known metric labels without interpreting untrusted titles as markup', () => {
+  const page = monitoring();
+  const html=vm.runInContext(`alarmHistoryPanel([
+    {serverId:'COGCGPRO12',serverName:'COGCGPRO12',state:'critical',title:'runMemory',description:'Limite',observedAt:Date.now()},
+    {serverId:'COGCGPRO12',serverName:'COGCGPRO12',state:'warning',title:'<img src=x>',description:'Elevação',observedAt:Date.now()}
+  ])`,page.context);
+  assert.match(html,/Crítico · RAM/);
+  assert.match(html,/&lt;img src=x&gt;/);
+  assert.doesNotMatch(html,/<img|runMemory/);
 });

@@ -11,6 +11,18 @@ let overviewMetricPage = 0;
 let detailMetricPage = 0;
 let detailAlarmPage = 0;
 const CAROUSEL_INTERVAL_MS = 10000;
+const ALARM_LABELS = { runCPU: 'CPU', runMemory: 'RAM', runPVT: 'Memória privada', runTRD: 'Threads', runErrorsPerMinute: 'Erros', runLocalPending: 'Fila local', runRemotePending: 'Fila remota' };
+function contextIcon(kind) {
+  const paths = {
+    trend: '<path d="m4 16 5-5 4 3 7-10M14 4h6v6"/>',
+    absolute: '<path d="M4 6h16M12 20V10m-4 4 4-4 4 4"/>',
+    readings: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+    history: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>',
+    paused: '<path d="M9 5v14M15 5v14"/>',
+    unknown: '<circle cx="12" cy="12" r="8.5"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3h.01"/>'
+  };
+  return `<svg class="context-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[kind] || paths.unknown}</svg>`;
+}
 const dashboardDateFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const dashboardTimeFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 function dashboardDateTime(now = new Date()) {
@@ -36,6 +48,16 @@ function currentMetric(server, key, now = Date.now()) {
   return hasMetricValue(key, value) && (!quality || quality.good === true) && Number.isFinite(timestamp) && timestamp <= now && now - timestamp <= HEALTH_LIMITS.staleSeconds * 1000 ? value : null;
 }
 function visibleMetrics(server) { return Object.fromEntries(Object.keys(server.metrics || {}).map(key => [key, currentMetric(server, key)])); }
+function readingCoverage(servers) {
+  const readings = servers.flatMap(server => serverMetricGroups(visibleMetrics(server)).flatMap(group => group.items));
+  return { available: readings.filter(item => hasMetricValue(item.key, item.value)).length, total: readings.length };
+}
+function readingContext(servers) {
+  const {available, total} = readingCoverage(servers);
+  const state = paused ? 'paused' : !available ? 'unknown' : available < total ? 'partial' : 'complete';
+  const label = paused ? 'Atualização pausada' : !available ? 'Sem leituras recentes' : available < total ? 'Leitura parcial' : 'Leituras recentes';
+  return `<div class="reading-context" data-reading-state="${state}" aria-label="Disponibilidade das medições">${contextIcon(paused ? 'paused' : !available ? 'unknown' : 'readings')}<div><strong>${label}</strong><span>${available} / ${total} pontos${servers.length > 1 ? ` · ${servers.length} servidores` : ''}</span></div></div>`;
+}
 function serverAlarmPanel(server, health, pageSize = health.signals.length || 1, page = 0) {
   const points = { runCPU: ['E3Run.CPU', '%', 1], runMemory: ['Sistema.Memória', '%', 1], runPVT: ['E3Run.MemóriaPrivada', 'KiB', 0], runTRD: ['E3Run.Threads', 'threads', 0], runErrorsPerMinute: ['E3Run.ErrosScripts', 'erros/min', 1], runLocalPending: ['E3Run.FilaLocal', 'eventos', 0], runRemotePending: ['E3Run.FilaRemota', 'eventos', 0] };
   const activeCount = health.signals.filter(signal => ['critical', 'warning'].includes(signal.state)).length;
@@ -49,7 +71,7 @@ function serverAlarmPanel(server, health, pageSize = health.signals.length || 1,
     const condition = !signal.metric ? (active ? 'Falha de publicação' : 'Dados indisponíveis') : !active ? 'Dados ou histórico indisponíveis' : signal.kind === 'absolute' ? (unit === '%' ? 'Percentual Muito Alto' : 'Valor Muito Alto') : 'Tendência de Elevação';
     const reading = signal.metric && active ? ` (${format(value, digits)}${Number.isFinite(value) ? ` ${unit}` : ''})` : '';
     const text = `${point} - ${condition}${reading}`;
-    return `<li class="detail-alarm ${signal.state}" title="${escapeHtml(signal.description || '')}"><span class="detail-alarm-icon" aria-hidden="true">${active ? '!' : '?'}</span><span class="detail-alarm-text">${escapeHtml(text)}</span><span class="detail-alarm-state">- ${active ? 'Ativo' : 'Indisponível'}</span></li>`;
+    return `<li class="detail-alarm ${signal.state}" title="${escapeHtml(signal.description || '')}">${monitoringSeverityIcon(signal.state)}<span class="detail-alarm-text">${escapeHtml(text)}</span><span class="detail-alarm-state">- ${active ? 'Ativo' : 'Indisponível'}</span></li>`;
   }).join('');
   const pager = pages > 1 ? `<div class="detail-alarm-pages"><button type="button" data-detail-alarm-page="${(page - 1 + pages) % pages}" aria-label="Alarmes anteriores">←</button><span>${page % pages + 1} / ${pages}</span><button type="button" data-detail-alarm-page="${(page + 1) % pages}" aria-label="Próximos alarmes">→</button></div>` : '';
   return `<section class="server-alerts ${health.state}" aria-label="Alarmes do servidor"><div class="detail-alarm-heading"><strong>${heading}</strong>${pager}</div>${rows ? `<ul class="detail-alarm-list">${rows}</ul>` : '<p>Nenhum limite ou tendência de elevação ativo.</p>'}</section>`;
@@ -71,7 +93,7 @@ function monitoringPanel() {
   const pages = Math.max(1, Math.ceil(signals.length / 2));
   const activePage = monitoringPage % pages;
   const units = { runCPU: ['%', 1], runMemory: ['%', 1], runPVT: ['KiB', 0], runTRD: ['threads', 0], runErrorsPerMinute: ['/min', 1], runLocalPending: ['eventos', 0], runRemotePending: ['eventos', 0] };
-  const labels = { runCPU: 'CPU', runMemory: 'RAM', runPVT: 'Memória privada', runTRD: 'Threads', runErrorsPerMinute: 'Erros', runLocalPending: 'Fila local', runRemotePending: 'Fila remota' };
+  const affectedServers = new Set(signals.map(signal => signal.server.id)).size;
   const cards = signals.slice(activePage * 2, activePage * 2 + 2).map(signal => {
     const [unit, digits] = units[signal.metric] || ['', 0];
     const value = signal.state === 'unknown' ? null : currentMetric(signal.server, signal.metric);
@@ -79,11 +101,13 @@ function monitoringPanel() {
     const explanation = rate.replace(/^↑ (.+?) por minuto$/, 'Aumento de $1 ponto percentual por minuto');
     const timestamp = signal.server.metricQuality?.[signal.metric]?.timestamp || signal.server.sampleTime;
     const observedAt = Number.isFinite(timestamp) ? new Date(timestamp).toLocaleTimeString('pt-BR') : 'Horário indisponível';
-    return `<a class="compact-alarm ${signal.state}" href="#server/${encodeURIComponent(signal.server.id)}" title="${escapeHtml(signal.description)}">${monitoringSeverityIcon(signal.state)}<div class="compact-alarm-top"><span>${escapeHtml(labels[signal.metric] || signal.title)}${signal.kind === 'absolute' ? ' · Limite' : ''}</span><span class="compact-alarm-state">${escapeHtml(signal.stateLabel || HEALTH_STATES[signal.state].label)}</span></div><strong>${format(value, digits)}${Number.isFinite(value) ? ` <small>${unit}</small>` : ''}</strong><span class="compact-alarm-rate" title="${escapeHtml(explanation)}">${escapeHtml(rate)}</span><span class="compact-alarm-server">${escapeHtml(signal.server.name)} <span>${observedAt} ↗</span></span></a>`;
+    const kind = signal.kind === 'absolute' ? 'absolute' : signal.metric ? 'trend' : 'unknown';
+    return `<a class="compact-alarm ${signal.state}" href="#server/${encodeURIComponent(signal.server.id)}" title="${escapeHtml(signal.description)}">${monitoringSeverityIcon(signal.state)}<div class="compact-alarm-top"><span>${escapeHtml(ALARM_LABELS[signal.metric] || signal.title)}${signal.kind === 'absolute' ? ' · Limite' : ''}</span><span class="compact-alarm-state">${escapeHtml(signal.stateLabel || HEALTH_STATES[signal.state].label)}</span></div><span class="compact-alarm-server">${escapeHtml(signal.server.name)} <span>${observedAt} ↗</span></span><strong>${format(value, digits)}${Number.isFinite(value) ? ` <small>${unit}</small>` : ''}</strong><span class="compact-alarm-rate" data-alarm-kind="${kind}" title="${escapeHtml(explanation)}">${contextIcon(kind)}<span>${escapeHtml(rate)}</span></span></a>`;
   }).join('');
   const uncertain = unknownServers > 0 || !SERVERS.length;
   const empty = `<div class="alarm-status-summary ${uncertain ? 'unknown' : 'healthy'}"><span class="empty-status-icon" aria-hidden="true">${uncertain ? '?' : '✓'}</span><div><strong>${uncertain ? 'Estado não confirmado' : 'Nenhum alarme ativo'}</strong><p>${uncertain ? 'Há dados ou análises indisponíveis. Consulte o servidor.' : 'Nenhum limite ou tendência de elevação ativo.'}</p></div></div>`;
-  return `<div class="compact-monitor-heading"><h2>Monitoramento <span>ALARMES · TODOS OS SERVIDORES</span></h2><div class="alarm-counts"><span class="critical">${signals.filter(s => s.state === 'critical').length} críticos</span><span class="warning">${signals.filter(s => s.state === 'warning').length} atenção</span><span class="unknown">${unknownServers} com diagnóstico pendente</span></div></div><div class="monitoring-content"><section class="active-alarms"><div class="section-heading"><h3>Ativos agora</h3><span class="compact-monitor-caption">${signals.length ? `Página ${activePage + 1} de ${pages}` : 'Estado atual'}</span></div><div class="compact-alarm-list">${cards || empty}</div></section>${alarmHistoryPanel(historyEvents, monitoringPage)}</div>`;
+  const context = signals.length ? `${signals.length} ${signals.length === 1 ? 'alarme ativo' : 'alarmes ativos'} em ${affectedServers} ${affectedServers === 1 ? 'servidor' : 'servidores'}` : uncertain ? 'Aguardando dados ou análises válidas' : 'Nenhum limite ou elevação sinalizado';
+  return `<div class="compact-monitor-heading"><div><h2>Monitoramento</h2><p class="monitoring-context">${context}</p></div><div class="alarm-counts"><span class="critical" data-count="${signals.filter(s => s.state === 'critical').length}">${signals.filter(s => s.state === 'critical').length} críticos</span><span class="warning" data-count="${signals.filter(s => s.state === 'warning').length}">${signals.filter(s => s.state === 'warning').length} atenção</span>${unknownServers ? `<span class="unknown">${unknownServers} com diagnóstico pendente</span>` : ''}</div></div><div class="monitoring-content"><section class="active-alarms"><div class="section-heading"><h3>Ativos agora</h3><span class="compact-monitor-caption">${signals.length ? `Página ${activePage + 1} de ${pages}` : 'Estado atual'}</span></div><div class="compact-alarm-list">${cards || empty}</div></section>${alarmHistoryPanel(historyEvents, monitoringPage)}</div>`;
 }
 function renderMetricPageControls(pages, page, detail = false) {
   document.getElementById('metric-page-controls').innerHTML = pages.map((label, index) => `<button type="button" id="metric-page-${index}" ${detail ? `data-detail-metric-page="${index}"` : `data-metric-page="${index}"`} aria-pressed="${page === index}">${label}</button>`).join('');
@@ -91,14 +115,14 @@ function renderMetricPageControls(pages, page, detail = false) {
 function alarmHistoryPanel(events = PI_DATA_STATE.alarmHistory || [], page = 0) {
   const pages = Math.max(1, Math.ceil(events.length / 2));
   const offset = (page % pages) * 2;
-  const rows = events.slice(offset, offset + 2).map(event => `<a class="alarm-history-item ${event.state}" href="#server/${encodeURIComponent(event.serverId)}" title="${escapeHtml(event.description)}"><span class="history-dot" aria-hidden="true"></span><div><div class="history-meta"><strong>${escapeHtml(event.serverName)}</strong><time>${new Date(event.observedAt).toLocaleTimeString('pt-BR')}</time></div><span>${HEALTH_STATES[event.state]?.label || 'Evento'} · ${escapeHtml(event.title)}</span><small>${new Date(event.observedAt).toLocaleDateString('pt-BR')} · ${escapeHtml(event.description)}</small></div></a>`).join('');
-  return `<section class="alarm-history" aria-label="Histórico de alarmes"><div class="section-heading"><h3>Histórico recente</h3><span>${events.length ? `${page % pages + 1} / ${pages}` : 'Eventos'}</span></div><div class="alarm-history-list">${rows || '<p class="history-empty">Nenhum evento registrado.<br><span>Os próximos alarmes aparecerão aqui.</span></p>'}</div></section>`;
+  const rows = events.slice(offset, offset + 2).map(event => `<a class="alarm-history-item ${event.state}" href="#server/${encodeURIComponent(event.serverId)}" title="${escapeHtml(event.description)}"><span class="history-dot" aria-hidden="true"></span><div><div class="history-meta"><strong>${escapeHtml(event.serverName)}</strong><time>${new Date(event.observedAt).toLocaleTimeString('pt-BR')}</time></div><span>${HEALTH_STATES[event.state]?.label || 'Evento'} · ${escapeHtml(Object.hasOwn(ALARM_LABELS, event.title) ? ALARM_LABELS[event.title] : event.title)}</span><small>${new Date(event.observedAt).toLocaleDateString('pt-BR')} · ${escapeHtml(event.description)}</small></div></a>`).join('');
+  return `<section class="alarm-history" aria-label="Histórico de alarmes"><div class="section-heading"><h3>${contextIcon('history')}Histórico recente</h3><span>${events.length ? `${page % pages + 1} / ${pages}` : 'Eventos'}</span></div><div class="alarm-history-list">${rows || '<p class="history-empty">Nenhum evento registrado.<br><span>Os próximos alarmes aparecerão aqui.</span></p>'}</div></section>`;
 }
 function fleetNavigation() {
-  return `<div class="fleet-navigation" aria-label="Selecionar medições do servidor">${SERVERS.map((server, index) => {
+  return `<div class="fleet-strip"><div class="fleet-navigation" aria-label="Selecionar medições do servidor">${SERVERS.map((server, index) => {
     const health = healthOf(server);
     return `<button type="button" id="server-switch-${escapeHtml(server.id)}" class="server-switch ${health.state}" data-carousel-index="${index}" aria-pressed="${carouselIndex === index}"><i aria-hidden="true"></i><span><strong>${escapeHtml(server.name)}</strong><small>${HEALTH_STATES[health.state].label}</small></span></button>`;
-  }).join('')}</div>`;
+  }).join('')}</div>${readingContext(SERVERS)}</div>`;
 }
 function renderFleet() {
   if (!SERVERS.length) {
@@ -128,7 +152,8 @@ function metricCards(metrics, health = {signals: []}) {
     const state = !available ? 'unknown' : signal?.state || 'neutral';
     const label = !available ? 'Sem dados' : state === 'unknown' ? 'Análise pendente' : signal ? HEALTH_STATES[state].label : '';
     const indicator = available && m.unit === '%' ? `<div class="metric-indicator" aria-hidden="true"><i style="width:${Math.min(100, Math.max(0, m.value))}%"></i></div>` : '';
-    return `<article class="metric-card ${state} ${text ? 'text-metric' : ''}" data-metric="${m.key}"><div class="card-heading"><span>${escapeHtml(m.label)}</span>${label ? `<span class="metric-status">${label}</span>` : ''}</div><div class="metric-body"><strong class="metric-value" title="${escapeHtml(reading)}">${escapeHtml(reading)}<em>${available ? escapeHtml(m.unit || '') : ''}</em></strong></div>${indicator}</article>`;
+    const marker = label ? contextIcon(state === 'unknown' ? 'unknown' : signal?.kind === 'absolute' ? 'absolute' : 'trend') : '';
+    return `<article class="metric-card ${state} ${text ? 'text-metric' : ''}" data-metric="${m.key}"><div class="card-heading"><span>${escapeHtml(m.label)}</span>${label ? `<span class="metric-status">${marker}${label}</span>` : ''}</div><div class="metric-body"><strong class="metric-value" title="${escapeHtml(reading)}">${escapeHtml(reading)}<em>${available ? escapeHtml(m.unit || '') : ''}</em></strong></div>${indicator}</article>`;
   }).join('');
 }
 function serverMetricGroups(m) {
@@ -231,6 +256,7 @@ document.getElementById('pause').addEventListener('click', event => {
   paused = !paused;
   event.currentTarget.textContent = paused ? 'Retomar atualização' : 'Pausar atualização';
   event.currentTarget.setAttribute('aria-pressed', String(paused));
+  renderRoute();
   renderConnectionState();
 });
 main.addEventListener('click', event => {
