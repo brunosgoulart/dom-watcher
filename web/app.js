@@ -13,6 +13,8 @@ let detailAlarmPage = 0;
 const CAROUSEL_INTERVAL_MS = 10000;
 const ORBIT_INTERVAL_MS = 4000;
 let orbitFocusMetricKey = null;
+let topologySelectedId = null;
+let topologyFilters = { zone: 'all', protocol: 'all', risk: 'all' };
 const ALARM_LABELS = { runCPU: 'CPU', runMemory: 'RAM', runPVT: 'Memória privada', runTRD: 'Threads', runErrorsPerMinute: 'Erros', runLocalPending: 'Fila local', runRemotePending: 'Fila remota' };
 function contextIcon(kind) {
   const paths = {
@@ -295,6 +297,65 @@ function serverMetricGroups(m) {
 function metricSections(groups, health) {
   return groups.map(group => `<section class="metric-section" aria-label="${escapeHtml(group.title)}"><h2>${escapeHtml(group.title)} <span>${escapeHtml(group.subtitle)}</span></h2><div class="metric-grid">${metricCards(group.items, health)}</div></section>`).join('');
 }
+function topologyRisk(health) {
+  return ['critical', 'warning', 'unknown'].includes(health.state) ? health.state : 'healthy';
+}
+function topologyModel() {
+  const positions = [[22, 48], [50, 25], [78, 65], [50, 78], [50, 48]];
+  const nodes = SERVERS.map((server, index) => {
+    const health = healthOf(server);
+    const position = positions[index % 3];
+    const simulated = PI_DATA_STATE.simulated === true;
+    return { id: server.id, label: server.name, type: 'Servidor de aplicação', zone: simulated ? 'SCADA (simulado)' : 'Não classificada', level: simulated ? 'L2 (simulado)' : 'Não informado', risk: topologyRisk(health), health, server, x: position[0], y: position[1] };
+  });
+  // The production status contract has no network-session field. Demonstrative
+  // sessions are exposed only by the isolated local preview, never inferred from PI values.
+  const sessions = PI_DATA_STATE.simulated && nodes.length > 1 ? [
+    { id: 'demo-1', source: nodes[0]?.id, target: nodes[1]?.id, protocol: 'OPC UA', port: '4840', risk: nodes[0]?.risk === 'critical' || nodes[1]?.risk === 'critical' ? 'critical' : 'warning', direction: '→', observed: 'Fluxo demonstrativo' },
+    { id: 'demo-2', source: nodes[1]?.id, target: nodes[2]?.id, protocol: 'Modbus TCP', port: '502', risk: nodes[2]?.risk === 'critical' ? 'critical' : 'neutral', direction: '→', observed: 'Fluxo demonstrativo' }
+  ].filter(session => session.source && session.target) : [];
+  return { nodes, sessions, simulated: PI_DATA_STATE.simulated === true };
+}
+function filteredTopology(model) {
+  const matchesRisk = item => topologyFilters.risk === 'all' || item.risk === topologyFilters.risk;
+  const nodes = model.nodes.filter(node => (topologyFilters.zone === 'all' || node.zone === topologyFilters.zone) && matchesRisk(node));
+  const ids = new Set(nodes.map(node => node.id));
+  const sessions = model.sessions.filter(session => ids.has(session.source) && ids.has(session.target) && (topologyFilters.protocol === 'all' || session.protocol === topologyFilters.protocol) && matchesRisk(session));
+  return { nodes, sessions };
+}
+function topologyFiltersPanel(model) {
+  const risks = [['all', 'Todos os riscos'], ['critical', 'Crítico'], ['warning', 'Atenção'], ['unknown', 'Não confirmado']];
+  const protocols = ['all', ...new Set(model.sessions.map(session => session.protocol))];
+  const zones = ['all', ...new Set(model.nodes.map(node => node.zone))];
+  return `<aside class="topology-filters" aria-label="Filtros de topologia"><div><span class="topology-panel-eyebrow">ESCOPO</span><h2>Filtros</h2><p>Reduza o mapa antes de investigar.</p></div><label>Zona<select data-topology-filter="zone">${zones.map(zone => `<option value="${escapeHtml(zone)}"${topologyFilters.zone === zone ? ' selected' : ''}>${zone === 'all' ? 'Todas as zonas' : escapeHtml(zone)}</option>`).join('')}</select></label><label>Protocolo<select data-topology-filter="protocol">${protocols.map(protocol => `<option value="${escapeHtml(protocol)}"${topologyFilters.protocol === protocol ? ' selected' : ''}>${protocol === 'all' ? 'Todos os protocolos' : escapeHtml(protocol)}</option>`).join('')}</select></label><label>Risco<select data-topology-filter="risk">${risks.map(([value, label]) => `<option value="${value}"${topologyFilters.risk === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label><div class="topology-filter-note"><span aria-hidden="true">i</span><p>${model.simulated ? 'Fluxos demonstrativos locais; não representam sessões do PI Data Archive.' : 'A API atual não envia sessões, zonas ou níveis OT. Nenhuma comunicação foi inferida.'}</p></div></aside>`;
+}
+function topologyNode(node) {
+  return `<button type="button" class="topology-node ${node.risk}" data-topology-node="${escapeHtml(node.id)}" style="--topology-x:${node.x}%;--topology-y:${node.y}%" aria-pressed="${topologySelectedId === node.id}" aria-label="${escapeHtml(node.label)} · ${escapeHtml(node.zone)} · ${escapeHtml(HEALTH_STATES[node.health.state].label)}"><span class="topology-node-icon" aria-hidden="true">▣</span><strong>${escapeHtml(node.label)}</strong><small>${escapeHtml(node.type)}</small><i aria-hidden="true"></i></button>`;
+}
+function topologyEdge(session, model) {
+  const source = model.nodes.find(node => node.id === session.source);
+  const target = model.nodes.find(node => node.id === session.target);
+  if (!source || !target) return '';
+  const midX = (source.x + target.x) / 2;
+  const midY = (source.y + target.y) / 2;
+  return `<g class="topology-edge ${session.risk}" data-topology-session="${escapeHtml(session.id)}"><line x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}" marker-end="url(#topology-arrow)"/><text x="${midX}" y="${midY - 2}">${escapeHtml(session.protocol)} · ${escapeHtml(session.port)}</text></g>`;
+}
+function topologyDetail(node, model) {
+  if (!node) return `<aside class="topology-detail empty" aria-label="Detalhe do ativo"><span class="topology-panel-eyebrow">DETALHE CONTEXTUAL</span><h2>Selecione um ativo</h2><p>O painel mostrará zona, criticidade e sessões visíveis para o ativo escolhido.</p></aside>`;
+  const sessions = model.sessions.filter(session => session.source === node.id || session.target === node.id);
+  const active = node.health.signals.filter(signal => ['critical', 'warning'].includes(signal.state)).length;
+  const communication = sessions.length ? `<ul class="topology-session-list">${sessions.map(session => `<li class="${session.risk}"><span>${escapeHtml(session.protocol)} · ${escapeHtml(session.port)}</span><strong>${escapeHtml(session.direction)}</strong><small>${escapeHtml(session.observed)}</small></li>`).join('')}</ul>` : '<p class="topology-no-sessions">Sem sessões de rede no contrato atual. Estado de comunicação não confirmado.</p>';
+  return `<aside class="topology-detail ${node.risk}" aria-label="Detalhe de ${escapeHtml(node.label)}"><div class="topology-detail-heading"><div><span class="topology-panel-eyebrow">ATIVO SELECIONADO</span><h2>${escapeHtml(node.label)}</h2><p>${escapeHtml(node.type)}</p></div>${statusBadge(node.health.state)}</div><dl class="topology-facts"><div><dt>Zona</dt><dd>${escapeHtml(node.zone)}</dd></div><div><dt>Nível</dt><dd>${escapeHtml(node.level)}</dd></div><div><dt>Alertas ativos</dt><dd>${active}</dd></div><div><dt>Amostra</dt><dd>${escapeHtml(sampleAge(node.server))}</dd></div></dl><section><h3>Comunicações visíveis</h3>${communication}</section><a href="#server/${encodeURIComponent(node.id)}" class="topology-detail-link">Abrir métricas do servidor ↗</a></aside>`;
+}
+function renderTopology() {
+  const model = topologyModel();
+  const { nodes, sessions } = filteredTopology(model);
+  const selected = nodes.find(node => node.id === topologySelectedId) || null;
+  if (!selected) topologySelectedId = null;
+  const emptyState = !model.simulated ? '<div class="topology-empty-state"><strong>Estado de sessões não confirmado</strong><span>O monitoramento atual fornece ativos de aplicação, mas não telemetria de rede.</span></div>' : !nodes.length ? '<div class="topology-empty-state"><strong>Nenhum ativo corresponde aos filtros</strong><span>Ajuste zona, protocolo ou risco para ampliar o escopo.</span></div>' : '';
+  const zoneLabel = model.simulated ? 'SCADA SIMULADO · L2' : 'GRUPO DE MONITORAMENTO';
+  main.innerHTML = `<section class="topology-workspace" aria-label="Topologia de rede OT">${topologyFiltersPanel(model)}<section class="topology-center"><header class="topology-header"><div><span class="topology-panel-eyebrow">TOPOLOGIA OT</span><h1>Contexto de segmentação</h1><p>${model.simulated ? 'Prévia local com fluxos demonstrativos.' : 'Ativos monitorados; sessões de comunicação aguardando uma fonte de telemetria de rede.'}</p></div><div class="topology-summary"><span>${nodes.length} ${nodes.length === 1 ? 'ativo visível' : 'ativos visíveis'}</span><strong>${sessions.length} ${sessions.length === 1 ? 'sessão' : 'sessões'}</strong></div></header><div class="topology-legend" aria-label="Legenda"><span class="healthy"><i></i>Conforme</span><span class="warning"><i></i>Atenção</span><span class="critical"><i></i>Crítico</span><span class="unknown"><i></i>Não confirmado</span></div><div class="topology-canvas"><svg class="topology-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="topology-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z"/></marker></defs><rect x="7" y="10" width="86" height="78" rx="4" class="topology-zone"/>${sessions.map(session => topologyEdge(session, model)).join('')}</svg><span class="topology-zone-label">${zoneLabel}</span>${nodes.map(topologyNode).join('')}${emptyState}</div><footer class="topology-canvas-footer"><span>Linhas representam sessões somente quando fornecidas pela fonte de telemetria.</span><button type="button" data-topology-reset>Limpar seleção</button></footer></section>${topologyDetail(selected, model)}</section>`;
+}
 function renderDetail(server) {
   const health = healthOf(server), groups = serverMetricGroups(visibleMetrics(server));
   const metadata = [server.site, server.environment, server.role].filter(Boolean).map(escapeHtml).join(' · ');
@@ -307,19 +368,23 @@ function renderDetail(server) {
   main.innerHTML = `<section class="server-detail-carousel"><div class="overview"><div><a href="#overview" class="back-link">← Todos os servidores</a><h1>${escapeHtml(server.name)}<span>.</span></h1><p>${metadata}</p></div>${statusBadge(health.state)}</div>${serverAlarmPanel(server,health,2,detailAlarmPage)}<p class="metric-summary">${available} de 26 pontos com dados válidos recentes · Amostra essencial: ${sampleAge(server)} · Valores sem qualidade ou vencidos aparecem como —</p><div class="primary-grid detail-metrics all-metrics">${metricSections(groups.slice(detailMetricPage * 2, detailMetricPage * 2 + 2), health)}</div></section>`;
 }
 function renderRoute(moveFocus = false) {
-  document.body?.classList.toggle('overview-page', !location.hash.startsWith('#server/'));
+  const isTopology = location.hash === '#topology';
+  document.body?.classList.toggle('overview-page', !location.hash.startsWith('#server/') && !isTopology);
   document.body?.classList.toggle('detail-page', location.hash.startsWith('#server/'));
+  document.body?.classList.toggle('topology-page', isTopology);
   const hash = location.hash.slice(1);
   let id = null;
   try { if (hash.startsWith('server/')) id = decodeURIComponent(hash.slice(7)); } catch { id = '__invalid__'; }
   const server = SERVERS.find(item => item.id === id);
   activeServerId = server?.id || null;
   document.getElementById('server-select').value = activeServerId || '';
-  document.getElementById('fleet-link').setAttribute('aria-current', !id ? 'page' : 'false');
+  document.getElementById('fleet-link').setAttribute('aria-current', !id && !isTopology ? 'page' : 'false');
+  document.getElementById('topology-link').setAttribute('aria-current', isTopology ? 'page' : 'false');
   if (id && !server) {
     main.innerHTML = '<div class="empty-state"><h1>Servidor não encontrado</h1><p>Este identificador não pertence ao inventário configurado.</p><a class="back-link" href="#overview">← Voltar à visão geral</a></div>';
     document.title = 'Runtime Monitor — Servidor não encontrado';
   } else if (server) { renderDetail(server); document.title = `Runtime Monitor — ${server.name}`; }
+  else if (isTopology) { document.getElementById('metric-page-controls').innerHTML = ''; renderTopology(); document.title = 'Runtime Monitor — Topologia OT'; }
   else { renderFleet(); document.title = 'Runtime Monitor — Visão geral'; }
   if (moveFocus) { main.focus({ preventScroll: true }); window.scrollTo(0, 0); }
 }
@@ -370,6 +435,18 @@ document.getElementById('pause').addEventListener('click', event => {
   renderConnectionState();
 });
 main.addEventListener('click', event => {
+  const topologyNodeButton = event.target.closest('[data-topology-node]');
+  if (topologyNodeButton) {
+    topologySelectedId = topologyNodeButton.dataset.topologyNode;
+    renderTopology();
+    document.querySelector?.(`[data-topology-node="${topologySelectedId}"]`)?.focus({ preventScroll: true });
+    return;
+  }
+  if (event.target.closest('[data-topology-reset]')) {
+    topologySelectedId = null;
+    renderTopology();
+    return;
+  }
   const orbitBubble = event.target.closest('[data-orbit-metric]');
   if (orbitBubble) {
     orbitFocusMetricKey = orbitBubble.dataset.orbitMetric;
@@ -392,13 +469,19 @@ main.addEventListener('click', event => {
   renderFleet();
   (button.id ? document.getElementById(button.id) : document.querySelector(`button[data-carousel-index="${carouselIndex}"]`))?.focus({ preventScroll: true });
 });
+main.addEventListener('change', event => {
+  const filter = event.target.closest('[data-topology-filter]');
+  if (!filter) return;
+  topologyFilters[filter.dataset.topologyFilter] = filter.value;
+  renderTopology();
+});
 window.addEventListener('hashchange', () => renderRoute(true));
 renderRoute(); renderConnectionState();
 startDataSource(renderDataUpdate, () => paused);
 setInterval(() => {
   const interacting = document.activeElement?.closest('#main a, #main button, #metric-page-controls button');
   if (paused || interacting) return;
-  if (!paused && !activeServerId) {
+  if (!paused && !activeServerId && location.hash !== '#topology') {
     advanceCarousel();
   } else if (activeServerId) {
     detailMetricPage = (detailMetricPage + 1) % 3;
@@ -409,7 +492,9 @@ setInterval(() => {
 setInterval(advanceOrbit, ORBIT_INTERVAL_MS);
 setInterval(() => {
   if (document.activeElement?.closest('#main a, #main button, #metric-page-controls button')) return;
-  if (activeServerId) {
+  if (location.hash === '#topology') {
+    renderTopology();
+  } else if (activeServerId) {
     renderDetail(SERVERS.find(server => server.id === activeServerId));
   }
   else renderFleet();

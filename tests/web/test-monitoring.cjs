@@ -235,6 +235,40 @@ test('reduced motion freezes automatic orbit updates without changing data state
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.orbit-bubble \{ animation: none !important; transition: none !important; \}/);
 });
 
+test('topology view exposes filters, a node-link workspace and never invents production sessions', () => {
+  const page = monitoring();
+  vm.runInContext(`PI_DATA_STATE.simulated=false; location.hash='#topology'; renderRoute()`, page.context);
+  const html = page.html();
+  assert.match(html, /Topologia OT|TOPOLOGIA OT/);
+  assert.match(html, /data-topology-filter="zone"/);
+  assert.match(html, /data-topology-filter="protocol"/);
+  assert.match(html, /class="topology-canvas"/);
+  assert.equal((html.match(/data-topology-node=/g) || []).length, 3);
+  assert.equal((html.match(/data-topology-session=/g) || []).length, 0);
+  assert.match(html, /Estado de sessões não confirmado/);
+  assert.match(html, /Selecione um ativo/);
+  assert.equal(vm.runInContext('topologyModel().sessions.length', page.context), 0);
+});
+
+test('simulated topology renders visible sessions, filters them and opens a contextual asset panel safely', () => {
+  const page = monitoring();
+  vm.runInContext(`
+    PI_DATA_STATE.simulated=true;
+    SERVERS[0].name='<img src=x onerror=alert(1)>';
+    topologySelectedId=SERVERS[0].id;
+    location.hash='#topology';
+    renderRoute();
+  `, page.context);
+  assert.equal((page.html().match(/data-topology-session=/g) || []).length, 2);
+  assert.match(page.html(), /Fluxo demonstrativo/);
+  assert.match(page.html(), /ATIVO SELECIONADO/);
+  assert.match(page.html(), /&lt;img/);
+  assert.doesNotMatch(page.html(), /<img/);
+  vm.runInContext(`topologyFilters.protocol='Modbus TCP'; renderTopology()`, page.context);
+  assert.equal((page.html().match(/data-topology-session=/g) || []).length, 1);
+  assert.match(page.html(), /Modbus TCP/);
+});
+
 test('active alarms and history rotate independently without empty pages', () => {
   const page = monitoring();
   vm.runInContext(`

@@ -7,11 +7,11 @@ Changes: Loaded the operational PI interface. -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>Runtime Monitor — Visão geral</title>
-  <link rel="stylesheet" href="styles.css?v=5.3">
+  <link rel="stylesheet" href="styles.css?v=5.4">
   <script src="pi-config.js?v=2.1" defer></script>
   <script src="servers.js?v=4.0" defer></script>
   <script src="pi-data-source.js?v=4.0" defer></script>
-  <script src="app.js?v=5.3" defer></script>
+  <script src="app.js?v=5.4" defer></script>
 </head>
 <body>
   <div class="dashboard">
@@ -19,7 +19,7 @@ Changes: Loaded the operational PI interface. -->
       <a class="brand dashboard-brand" href="#overview" aria-label="Dashboard de performance SCADA - Runtime Elipse E3 e Power"><span class="page-title-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V7m5 10v-5m5 5V9m5 8V4"></path><path d="M3 20h18"></path></svg></span><span class="page-title-copy"><span class="page-title-eyebrow">Dashboard de</span><span class="page-title-name">performance SCADA</span><span class="page-title-subtitle">Runtime Elipse E3 e Power</span></span></a>
       <div class="header-actions"><span class="connection-badge" id="source-badge">PI · AGUARDANDO API</span><button id="pause" type="button" aria-pressed="false">Pausar atualização</button></div>
     </header>
-    <nav class="view-navigation" aria-label="Navegação do monitor"><a href="#overview" id="fleet-link">Visão geral</a><label>Servidor <select id="server-select"><option value="">Selecionar servidor</option></select></label><div id="metric-page-controls" class="metric-pages top-metric-pages" aria-label="Grupos de métricas"></div><div class="connection-info"><details class="connection-details" id="connection-details"><summary aria-label="Informações da conexão" title="Informações da conexão"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6m0-10h.01"></path></svg></summary><div class="connection-status-panel"><strong>Status da conexão</strong><p id="connection-status">Aguardando API PI</p><p id="updated"></p></div></details><time id="current-datetime" aria-label="Data e hora atual — horário de São Paulo"></time></div></nav>
+    <nav class="view-navigation" aria-label="Navegação do monitor"><a href="#overview" id="fleet-link">Visão geral</a><a href="#topology" id="topology-link">Topologia OT</a><label>Servidor <select id="server-select"><option value="">Selecionar servidor</option></select></label><div id="metric-page-controls" class="metric-pages top-metric-pages" aria-label="Grupos de métricas"></div><div class="connection-info"><details class="connection-details" id="connection-details"><summary aria-label="Informações da conexão" title="Informações da conexão"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6m0-10h.01"></path></svg></summary><div class="connection-status-panel"><strong>Status da conexão</strong><p id="connection-status">Aguardando API PI</p><p id="updated"></p></div></details><time id="current-datetime" aria-label="Data e hora atual — horário de São Paulo"></time></div></nav>
     <main id="main" tabindex="-1"></main>
     <footer><span id="footer-source">PI Data Archive · aguardando conexão</span><span>E3 LOG READER <b>/</b> MONITOR</span></footer>
   </div>
