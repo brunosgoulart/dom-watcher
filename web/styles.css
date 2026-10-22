@@ -132,12 +132,17 @@ h1, h2, h3, p { margin: 0; }
 .back-link { font-size: 12px; }
 .carousel-controls .back-link { margin-right: 8px; }
 .carousel-controls button { padding: 4px 10px; }
+.carousel-controls .carousel-pause { min-width: 118px; border-color: #26d7f34a; color: var(--cyan); background: #26d7f30d; }
+.carousel-controls .carousel-pause[aria-pressed=true] { border-color: #f2c07870; color: var(--warning); background: #f2c07810; }
 .primary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .metric-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .metric-section h2 { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; font-weight: 650; letter-spacing: .4px; }
 .metric-section h2 span { color: var(--muted); font-size: 9px; font-weight: 400; letter-spacing: .7px; }
 .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 8px; flex: 1; }
 .metric-card { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 12px 15px; min-width: 0; min-height: 95px; border: 1px solid #ffffff09; border-radius: 11px; background: var(--surface); }
+.server-detail-carousel[data-server-motion=active] .detail-metrics { perspective: 1200px; transform-style: preserve-3d; }
+.server-detail-carousel[data-server-motion=active] .metric-card { transform-style: preserve-3d; will-change: transform; animation: server-card-orbit 9s ease-in-out infinite; animation-delay: var(--server-card-delay); }
+.server-detail-carousel[data-server-motion=active] .metric-card:hover, .server-detail-carousel[data-server-motion=active] .metric-card:focus-within { animation-play-state: paused; transform: translateZ(22px) rotateY(0deg) scale(1.015); }
 .metric-card.critical, .metric-card.warning { background: var(--surface); }
 .metric-card.critical::before, .metric-card.warning::before { content: ''; position: absolute; left: -1px; top: 16px; bottom: 16px; width: 2px; border-radius: 2px; background: currentColor; }
 .metric-card.neutral { color: var(--text); }
@@ -153,6 +158,7 @@ h1, h2, h3, p { margin: 0; }
 .metric-indicator { height: 3px; border-radius: 3px; overflow: hidden; background: #ffffff09; flex-shrink: 0; }
 .metric-indicator i { display: block; height: 100%; border-radius: inherit; background: currentColor; }
 .neutral .metric-indicator { color: #22d3ee; }
+@keyframes server-card-orbit { 0%, 100% { transform: translateZ(0) rotateY(-1.2deg) rotateX(.5deg); } 50% { transform: translateZ(16px) rotateY(1.2deg) rotateX(-.5deg); } }
 .carousel-caption { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
 .overview { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 0; }
 .overview h1 { font-size: 32px; letter-spacing: -1px; margin: 8px 0 4px; }
@@ -279,6 +285,7 @@ footer b { color: var(--green); padding: 0 7px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+  .server-detail-carousel .metric-card { animation: none !important; transform: none !important; }
 }
 
 /* Orbital overview: color explains state; position never changes data meaning. */

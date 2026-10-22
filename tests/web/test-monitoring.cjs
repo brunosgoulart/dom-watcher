@@ -127,16 +127,35 @@ test('server alarm panel shows absolute value and active status without confusin
   assert.equal((html.match(/>- Indisponível</g) || []).length, 1);
 });
 
-test('carousel has no dedicated pause button and respects global pause and server details', () => {
+test('carousel has a dedicated pause button and respects both local and global pause', () => {
   const page = monitoring();
   const initial = page.html();
-  assert.doesNotMatch(initial, /carousel-pause|Pausar carrossel/);
+  assert.match(initial, /id="carousel-pause"/);
+  assert.match(initial, /Pausar carrossel/);
+  vm.runInContext('carouselPaused = true', page.context);
+  page.intervals[0].callback();
+  assert.equal(vm.runInContext('carouselIndex', page.context), 0);
   vm.runInContext('paused = true', page.context);
   page.intervals[0].callback();
   assert.equal(page.html(), initial);
-  vm.runInContext('paused = false; activeServerId = "COGCGPRO12"', page.context);
+  vm.runInContext('paused = false; carouselPaused = false; activeServerId = "COGCGPRO12"', page.context);
   page.intervals[0].callback();
   assert.equal(vm.runInContext('carouselIndex', page.context), 0);
+});
+
+test('server metric objects have a subtle 3D orbital motion that pauses globally or for reduced motion', () => {
+  const page = monitoring();
+  vm.runInContext('activeServerId="COGCGPRO12"; renderDetail(SERVERS[0])', page.context);
+  assert.match(page.html(), /data-server-motion="active"/);
+  assert.match(page.html(), /--server-card-delay:/);
+  vm.runInContext('paused=true; renderDetail(SERVERS[0])', page.context);
+  assert.match(page.html(), /data-server-motion="paused"/);
+  const reduced = monitoring(true);
+  vm.runInContext('activeServerId="COGCGPRO12"; renderDetail(SERVERS[0])', reduced.context);
+  assert.match(reduced.html(), /data-server-motion="paused"/);
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'styles.css'), 'utf8');
+  assert.match(css, /@keyframes server-card-orbit/);
+  assert.match(css, /\.server-detail-carousel\[data-server-motion=active\] \.metric-card \{ transform-style: preserve-3d/);
 });
 
 test('fresh real measurements remain visible during trend warmup and partial collection', () => {

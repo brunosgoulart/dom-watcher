@@ -4,6 +4,9 @@ const format = (value, digits = 0) => Number.isFinite(value) ? new Intl.NumberFo
 const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const main = document.getElementById('main');
 let paused = false;
+// Separate from the global update pause: freezes only automatic navigation
+// between server pages while PI polling remains active.
+let carouselPaused = false;
 let activeServerId = null;
 let carouselIndex = 0;
 let monitoringPage = 0;
@@ -238,10 +241,10 @@ function renderFleet() {
   carouselIndex = ((carouselIndex % SERVERS.length) + SERVERS.length) % SERVERS.length;
   const server = SERVERS[carouselIndex];
   document.getElementById('metric-page-controls').innerHTML = '';
-  main.innerHTML = `<section class="server-carousel orbit-dashboard" aria-label="Visão geral dos servidores">${fleetNavigation()}<div class="metric-server-identity"><div><span>ÓRBITA ATIVA</span><h1>${escapeHtml(server.name)}</h1><small>${escapeHtml([server.site, server.environment].filter(Boolean).join(' · '))}</small></div><div class="carousel-controls"><a class="back-link" href="#server/${encodeURIComponent(server.id)}">Detalhes ↗</a><button id="carousel-previous" type="button" aria-label="Servidor anterior">←</button><button id="carousel-next" type="button" aria-label="Próximo servidor">→</button></div></div>${metricOrbit(server)}<aside id="overview-monitoring" aria-label="Alarmes ativos e histórico">${monitoringPanel()}</aside>${serverDonuts()}<p class="carousel-caption"><span>26 pontos na órbita</span><span>${!server.collecting ? 'Sem dados recentes · ' : ''}${paused ? 'Atualização pausada · ' : ''}Amostra: ${sampleAge(server)}</span></p></section>`;
+  main.innerHTML = `<section class="server-carousel orbit-dashboard" aria-label="Visão geral dos servidores">${fleetNavigation()}<div class="metric-server-identity"><div><span>ÓRBITA ATIVA</span><h1>${escapeHtml(server.name)}</h1><small>${escapeHtml([server.site, server.environment].filter(Boolean).join(' · '))}</small></div><div class="carousel-controls"><a class="back-link" href="#server/${encodeURIComponent(server.id)}">Detalhes ↗</a><button id="carousel-previous" type="button" aria-label="Servidor anterior">←</button><button id="carousel-pause" class="carousel-pause" type="button" aria-pressed="${carouselPaused}" aria-label="${carouselPaused ? 'Retomar troca automática entre servidores' : 'Pausar troca automática entre servidores'}">${carouselPaused ? 'Retomar carrossel' : 'Pausar carrossel'}</button><button id="carousel-next" type="button" aria-label="Próximo servidor">→</button></div></div>${metricOrbit(server)}<aside id="overview-monitoring" aria-label="Alarmes ativos e histórico">${monitoringPanel()}</aside>${serverDonuts()}<p class="carousel-caption"><span>26 pontos na órbita</span><span>${!server.collecting ? 'Sem dados recentes · ' : ''}${paused ? 'Atualização pausada · ' : ''}${carouselPaused ? 'Carrossel pausado · ' : ''}Amostra: ${sampleAge(server)}</span></p></section>`;
 }
 function advanceCarousel() {
-  if (paused || activeServerId || !SERVERS.length || !document.getElementById('carousel-next')) return;
+  if (paused || carouselPaused || activeServerId || !SERVERS.length || !document.getElementById('carousel-next')) return;
   monitoringPage++;
   renderFleet();
 }
@@ -257,7 +260,7 @@ function prefersReducedMotion() {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
 function metricCards(metrics, health = {signals: []}) {
-  return metrics.map(m => {
+  return metrics.map((m, index) => {
     const available = hasMetricValue(m.key, m.value);
     const text = PI_TEXT_METRICS.has(m.key);
     const reading = !available ? '—' : text ? String(m.value) : format(m.value, Number(m.digits || 0));
@@ -266,7 +269,7 @@ function metricCards(metrics, health = {signals: []}) {
     const label = !available ? 'Sem dados' : state === 'unknown' ? 'Análise pendente' : signal ? HEALTH_STATES[state].label : '';
     const indicator = available && m.unit === '%' ? `<div class="metric-indicator" aria-hidden="true"><i style="width:${Math.min(100, Math.max(0, m.value))}%"></i></div>` : '';
     const marker = label ? contextIcon(state === 'unknown' ? 'unknown' : signal?.kind === 'absolute' ? 'absolute' : 'trend') : '';
-    return `<article class="metric-card ${state} ${text ? 'text-metric' : ''}" data-metric="${m.key}"><div class="card-heading"><span>${escapeHtml(m.label)}</span>${label ? `<span class="metric-status">${marker}${label}</span>` : ''}</div><div class="metric-body"><strong class="metric-value" title="${escapeHtml(reading)}">${escapeHtml(reading)}<em>${available ? escapeHtml(m.unit || '') : ''}</em></strong></div>${indicator}</article>`;
+    return `<article class="metric-card ${state} ${text ? 'text-metric' : ''}" data-metric="${m.key}" style="--server-card-delay:${(index * -.42).toFixed(2)}s"><div class="card-heading"><span>${escapeHtml(m.label)}</span>${label ? `<span class="metric-status">${marker}${label}</span>` : ''}</div><div class="metric-body"><strong class="metric-value" title="${escapeHtml(reading)}">${escapeHtml(reading)}<em>${available ? escapeHtml(m.unit || '') : ''}</em></strong></div>${indicator}</article>`;
   }).join('');
 }
 function serverMetricGroups(m) {
@@ -371,7 +374,8 @@ function renderDetail(server) {
   const alarmPages = Math.max(1, Math.ceil(health.signals.length / 2));
   detailAlarmPage = ((detailAlarmPage % alarmPages) + alarmPages) % alarmPages;
   renderMetricPageControls(pages, detailMetricPage, true);
-  main.innerHTML = `<section class="server-detail-carousel"><div class="overview"><div><a href="#overview" class="back-link">← Todos os servidores</a><h1>${escapeHtml(server.name)}<span>.</span></h1><p>${metadata}</p></div>${statusBadge(health.state)}</div>${serverAlarmPanel(server,health,2,detailAlarmPage)}<p class="metric-summary">${available} de 26 pontos com dados válidos recentes · Amostra essencial: ${sampleAge(server)} · Valores sem qualidade ou vencidos aparecem como —</p><div class="primary-grid detail-metrics all-metrics">${metricSections(groups.slice(detailMetricPage * 2, detailMetricPage * 2 + 2), health)}</div></section>`;
+  const serverMotion = paused || prefersReducedMotion() ? 'paused' : 'active';
+  main.innerHTML = `<section class="server-detail-carousel" data-server-motion="${serverMotion}"><div class="overview"><div><a href="#overview" class="back-link">← Todos os servidores</a><h1>${escapeHtml(server.name)}<span>.</span></h1><p>${metadata}</p></div>${statusBadge(health.state)}</div>${serverAlarmPanel(server,health,2,detailAlarmPage)}<p class="metric-summary">${available} de 26 pontos com dados válidos recentes · Amostra essencial: ${sampleAge(server)} · Valores sem qualidade ou vencidos aparecem como —</p><div class="primary-grid detail-metrics all-metrics">${metricSections(groups.slice(detailMetricPage * 2, detailMetricPage * 2 + 2), health)}</div></section>`;
 }
 function renderRoute(moveFocus = false) {
   const isTopology = location.hash === '#topology';
@@ -471,6 +475,12 @@ main.addEventListener('click', event => {
   if (metricPage) { overviewMetricPage = Number(metricPage.dataset.metricPage); renderFleet(); return; }
   const button = event.target.closest('button');
   if (!button) return;
+  if (button.id === 'carousel-pause') {
+    carouselPaused = !carouselPaused;
+    renderFleet();
+    document.getElementById('carousel-pause')?.focus({ preventScroll: true });
+    return;
+  }
   if (button.id === 'carousel-previous') carouselIndex = (carouselIndex - 1 + SERVERS.length) % SERVERS.length;
   else if (button.id === 'carousel-next') carouselIndex = (carouselIndex + 1) % SERVERS.length;
   else if (button.dataset.carouselIndex !== undefined) carouselIndex = Number(button.dataset.carouselIndex);
