@@ -243,11 +243,25 @@ test('topology view exposes filters, a node-link workspace and never invents pro
   assert.match(html, /data-topology-filter="zone"/);
   assert.match(html, /data-topology-filter="protocol"/);
   assert.match(html, /class="topology-canvas"/);
+  assert.match(html, /data-topology-motion="active"/);
   assert.equal((html.match(/data-topology-node=/g) || []).length, 3);
   assert.equal((html.match(/data-topology-session=/g) || []).length, 0);
   assert.match(html, /Estado de sessões não confirmado/);
   assert.match(html, /Selecione um ativo/);
   assert.equal(vm.runInContext('topologyModel().sessions.length', page.context), 0);
+});
+
+test('topology depth animation pauses with global pause or reduced motion', () => {
+  const page = monitoring();
+  vm.runInContext(`location.hash='#topology'; paused=true; renderRoute()`, page.context);
+  assert.match(page.html(), /data-topology-motion="paused"/);
+  const reduced = monitoring(true);
+  vm.runInContext(`location.hash='#topology'; renderRoute()`, reduced.context);
+  assert.match(reduced.html(), /data-topology-motion="paused"/);
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'styles.css'), 'utf8');
+  assert.match(css, /@keyframes topology-plane-orbit/);
+  assert.match(css, /@keyframes topology-node-depth/);
+  assert.match(css, /\.topology-canvas\[data-topology-motion=active\] \.topology-motion-plane \{ animation: topology-plane-orbit/);
 });
 
 test('simulated topology renders visible sessions, filters them and opens a contextual asset panel safely', () => {

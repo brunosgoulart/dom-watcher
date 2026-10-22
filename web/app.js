@@ -15,6 +15,7 @@ const ORBIT_INTERVAL_MS = 4000;
 let orbitFocusMetricKey = null;
 let topologySelectedId = null;
 let topologyFilters = { zone: 'all', protocol: 'all', risk: 'all' };
+let topologyLastSignature = '';
 const ALARM_LABELS = { runCPU: 'CPU', runMemory: 'RAM', runPVT: 'Memória privada', runTRD: 'Threads', runErrorsPerMinute: 'Erros', runLocalPending: 'Fila local', runRemotePending: 'Fila remota' };
 function contextIcon(kind) {
   const paths = {
@@ -306,7 +307,7 @@ function topologyModel() {
     const health = healthOf(server);
     const position = positions[index % 3];
     const simulated = PI_DATA_STATE.simulated === true;
-    return { id: server.id, label: server.name, type: 'Servidor de aplicação', zone: simulated ? 'SCADA (simulado)' : 'Não classificada', level: simulated ? 'L2 (simulado)' : 'Não informado', risk: topologyRisk(health), health, server, x: position[0], y: position[1] };
+    return { id: server.id, label: server.name, type: 'Servidor de aplicação', zone: simulated ? 'SCADA (simulado)' : 'Não classificada', level: simulated ? 'L2 (simulado)' : 'Não informado', risk: topologyRisk(health), health, server, x: position[0], y: position[1], depth: [16, 54, -12][index % 3], delay: index * -1.7 };
   });
   // The production status contract has no network-session field. Demonstrative
   // sessions are exposed only by the isolated local preview, never inferred from PI values.
@@ -315,6 +316,9 @@ function topologyModel() {
     { id: 'demo-2', source: nodes[1]?.id, target: nodes[2]?.id, protocol: 'Modbus TCP', port: '502', risk: nodes[2]?.risk === 'critical' ? 'critical' : 'neutral', direction: '→', observed: 'Fluxo demonstrativo' }
   ].filter(session => session.source && session.target) : [];
   return { nodes, sessions, simulated: PI_DATA_STATE.simulated === true };
+}
+function topologySignature(model) {
+  return JSON.stringify({ simulated: model.simulated, filters: topologyFilters, nodes: model.nodes.map(node => [node.id, node.label, node.risk]), sessions: model.sessions.map(session => [session.id, session.risk, session.protocol]) });
 }
 function filteredTopology(model) {
   const matchesRisk = item => topologyFilters.risk === 'all' || item.risk === topologyFilters.risk;
@@ -330,7 +334,7 @@ function topologyFiltersPanel(model) {
   return `<aside class="topology-filters" aria-label="Filtros de topologia"><div><span class="topology-panel-eyebrow">ESCOPO</span><h2>Filtros</h2><p>Reduza o mapa antes de investigar.</p></div><label>Zona<select data-topology-filter="zone">${zones.map(zone => `<option value="${escapeHtml(zone)}"${topologyFilters.zone === zone ? ' selected' : ''}>${zone === 'all' ? 'Todas as zonas' : escapeHtml(zone)}</option>`).join('')}</select></label><label>Protocolo<select data-topology-filter="protocol">${protocols.map(protocol => `<option value="${escapeHtml(protocol)}"${topologyFilters.protocol === protocol ? ' selected' : ''}>${protocol === 'all' ? 'Todos os protocolos' : escapeHtml(protocol)}</option>`).join('')}</select></label><label>Risco<select data-topology-filter="risk">${risks.map(([value, label]) => `<option value="${value}"${topologyFilters.risk === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label><div class="topology-filter-note"><span aria-hidden="true">i</span><p>${model.simulated ? 'Fluxos demonstrativos locais; não representam sessões do PI Data Archive.' : 'A API atual não envia sessões, zonas ou níveis OT. Nenhuma comunicação foi inferida.'}</p></div></aside>`;
 }
 function topologyNode(node) {
-  return `<button type="button" class="topology-node ${node.risk}" data-topology-node="${escapeHtml(node.id)}" style="--topology-x:${node.x}%;--topology-y:${node.y}%" aria-pressed="${topologySelectedId === node.id}" aria-label="${escapeHtml(node.label)} · ${escapeHtml(node.zone)} · ${escapeHtml(HEALTH_STATES[node.health.state].label)}"><span class="topology-node-icon" aria-hidden="true">▣</span><strong>${escapeHtml(node.label)}</strong><small>${escapeHtml(node.type)}</small><i aria-hidden="true"></i></button>`;
+  return `<button type="button" class="topology-node ${node.risk}" data-topology-node="${escapeHtml(node.id)}" style="--topology-x:${node.x}%;--topology-y:${node.y}%;--topology-depth:${node.depth}px;--topology-delay:${node.delay}s" aria-pressed="${topologySelectedId === node.id}" aria-label="${escapeHtml(node.label)} · ${escapeHtml(node.zone)} · ${escapeHtml(HEALTH_STATES[node.health.state].label)}"><span class="topology-node-icon" aria-hidden="true">▣</span><strong>${escapeHtml(node.label)}</strong><small>${escapeHtml(node.type)}</small><i aria-hidden="true"></i></button>`;
 }
 function topologyEdge(session, model) {
   const source = model.nodes.find(node => node.id === session.source);
@@ -349,12 +353,14 @@ function topologyDetail(node, model) {
 }
 function renderTopology() {
   const model = topologyModel();
+  topologyLastSignature = topologySignature(model);
   const { nodes, sessions } = filteredTopology(model);
   const selected = nodes.find(node => node.id === topologySelectedId) || null;
   if (!selected) topologySelectedId = null;
   const emptyState = !model.simulated ? '<div class="topology-empty-state"><strong>Estado de sessões não confirmado</strong><span>O monitoramento atual fornece ativos de aplicação, mas não telemetria de rede.</span></div>' : !nodes.length ? '<div class="topology-empty-state"><strong>Nenhum ativo corresponde aos filtros</strong><span>Ajuste zona, protocolo ou risco para ampliar o escopo.</span></div>' : '';
   const zoneLabel = model.simulated ? 'SCADA SIMULADO · L2' : 'GRUPO DE MONITORAMENTO';
-  main.innerHTML = `<section class="topology-workspace" aria-label="Topologia de rede OT">${topologyFiltersPanel(model)}<section class="topology-center"><header class="topology-header"><div><span class="topology-panel-eyebrow">TOPOLOGIA OT</span><h1>Contexto de segmentação</h1><p>${model.simulated ? 'Prévia local com fluxos demonstrativos.' : 'Ativos monitorados; sessões de comunicação aguardando uma fonte de telemetria de rede.'}</p></div><div class="topology-summary"><span>${nodes.length} ${nodes.length === 1 ? 'ativo visível' : 'ativos visíveis'}</span><strong>${sessions.length} ${sessions.length === 1 ? 'sessão' : 'sessões'}</strong></div></header><div class="topology-legend" aria-label="Legenda"><span class="healthy"><i></i>Conforme</span><span class="warning"><i></i>Atenção</span><span class="critical"><i></i>Crítico</span><span class="unknown"><i></i>Não confirmado</span></div><div class="topology-canvas"><svg class="topology-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="topology-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z"/></marker></defs><rect x="7" y="10" width="86" height="78" rx="4" class="topology-zone"/>${sessions.map(session => topologyEdge(session, model)).join('')}</svg><span class="topology-zone-label">${zoneLabel}</span>${nodes.map(topologyNode).join('')}${emptyState}</div><footer class="topology-canvas-footer"><span>Linhas representam sessões somente quando fornecidas pela fonte de telemetria.</span><button type="button" data-topology-reset>Limpar seleção</button></footer></section>${topologyDetail(selected, model)}</section>`;
+  const motion = paused || prefersReducedMotion() ? 'paused' : 'active';
+  main.innerHTML = `<section class="topology-workspace" aria-label="Topologia de rede OT">${topologyFiltersPanel(model)}<section class="topology-center"><header class="topology-header"><div><span class="topology-panel-eyebrow">TOPOLOGIA OT</span><h1>Contexto de segmentação</h1><p>${model.simulated ? 'Prévia local com fluxos demonstrativos.' : 'Ativos monitorados; sessões de comunicação aguardando uma fonte de telemetria de rede.'}</p></div><div class="topology-summary"><span>${nodes.length} ${nodes.length === 1 ? 'ativo visível' : 'ativos visíveis'}</span><strong>${sessions.length} ${sessions.length === 1 ? 'sessão' : 'sessões'}</strong></div></header><div class="topology-legend" aria-label="Legenda"><span class="healthy"><i></i>Conforme</span><span class="warning"><i></i>Atenção</span><span class="critical"><i></i>Crítico</span><span class="unknown"><i></i>Não confirmado</span></div><div class="topology-canvas" data-topology-motion="${motion}"><div class="topology-motion-plane"><svg class="topology-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="topology-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z"/></marker></defs><rect x="7" y="10" width="86" height="78" rx="4" class="topology-zone"/>${sessions.map(session => topologyEdge(session, model)).join('')}</svg><span class="topology-zone-label">${zoneLabel}</span>${nodes.map(topologyNode).join('')}${emptyState}</div></div><footer class="topology-canvas-footer"><span>Linhas representam sessões somente quando fornecidas pela fonte de telemetria.</span><button type="button" data-topology-reset>Limpar seleção</button></footer></section>${topologyDetail(selected, model)}</section>`;
 }
 function renderDetail(server) {
   const health = healthOf(server), groups = serverMetricGroups(visibleMetrics(server));
@@ -403,7 +409,10 @@ function renderDataUpdate() {
   const selection = id === 'server-search' ? [focus.selectionStart, focus.selectionEnd] : null;
   const select = document.getElementById('server-select');
   select.innerHTML = '<option value="">Selecionar servidor</option>' + SERVERS.map(server => `<option value="${escapeHtml(server.id)}">${escapeHtml(server.name)} · ${escapeHtml(server.site)}</option>`).join('');
-  renderRoute();
+  if (location.hash === '#topology') {
+    const model = topologyModel();
+    if (topologyLastSignature !== topologySignature(model)) renderTopology();
+  } else renderRoute();
   renderConnectionState();
   if (id && document.getElementById(id)) {
     const target = document.getElementById(id);
@@ -493,7 +502,7 @@ setInterval(advanceOrbit, ORBIT_INTERVAL_MS);
 setInterval(() => {
   if (document.activeElement?.closest('#main a, #main button, #metric-page-controls button')) return;
   if (location.hash === '#topology') {
-    renderTopology();
+    // The topology updates only when a visible state changes, preserving continuous 3D motion.
   } else if (activeServerId) {
     renderDetail(SERVERS.find(server => server.id === activeServerId));
   }

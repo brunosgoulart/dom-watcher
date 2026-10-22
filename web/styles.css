@@ -386,9 +386,11 @@ footer b { color: var(--green); padding: 0 7px; }
 .topology-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0 10px; color: var(--muted); font-size: 10px; }
 .topology-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .topology-legend i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 10%, transparent); }
-.topology-canvas { position: relative; flex: 1; min-height: 435px; overflow: hidden; border: 1px solid #ffffff0b; border-radius: 12px; background: radial-gradient(circle at 50% 45%, #1d2a38, #0c1219 70%); }
+.topology-canvas { position: relative; flex: 1; min-height: 435px; overflow: hidden; border: 1px solid #ffffff0b; border-radius: 12px; background: radial-gradient(circle at 50% 45%, #1d2a38, #0c1219 70%); perspective: 1150px; }
 .topology-canvas::before { content: ''; position: absolute; inset: 0; z-index: 0; opacity: .45; background-image: linear-gradient(#b9d5e008 1px, transparent 1px), linear-gradient(90deg, #b9d5e008 1px, transparent 1px); background-size: 30px 30px; pointer-events: none; }
-.topology-links { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; overflow: visible; }
+.topology-motion-plane { position: absolute; inset: 0; z-index: 1; transform-style: preserve-3d; will-change: transform; }
+.topology-canvas[data-topology-motion=active] .topology-motion-plane { animation: topology-plane-orbit 18s ease-in-out infinite; }
+.topology-links { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; overflow: visible; transform: translateZ(-12px); }
 .topology-zone { fill: #69dcb207; stroke: #69dcb23a; stroke-width: .25; stroke-dasharray: 1 1; }
 .topology-zone-label { position: absolute; left: 10%; top: 13%; z-index: 2; color: #9ab6c2; font-size: 9px; font-weight: 700; letter-spacing: 1.2px; }
 .topology-edge line { stroke: #6b8397; stroke-width: .42; stroke-dasharray: 1.2 .7; opacity: .72; }
@@ -396,8 +398,9 @@ footer b { color: var(--green); padding: 0 7px; }
 .topology-edge marker path { fill: #6b8397; }
 .topology-edge.warning line, .topology-edge.warning marker path { stroke: var(--warning); fill: var(--warning); }
 .topology-edge.critical line, .topology-edge.critical marker path { stroke: var(--critical); fill: var(--critical); }
-.topology-node { position: absolute; left: var(--topology-x); top: var(--topology-y); z-index: 3; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; width: 158px; padding: 10px; border: 1px solid #71879a66; border-radius: 10px; color: var(--text); background: #1b2733f5; box-shadow: 0 8px 24px #0008, inset 0 1px #ffffff0a; text-align: left; transform: translate(-50%, -50%); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
-.topology-node:hover, .topology-node[aria-pressed=true] { z-index: 4; border-color: var(--cyan); box-shadow: 0 0 0 3px #26d7f321, 0 12px 30px #0009; transform: translate(-50%, -50%) scale(1.03); }
+.topology-node { position: absolute; left: var(--topology-x); top: var(--topology-y); z-index: 3; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; width: 158px; padding: 10px; border: 1px solid #71879a66; border-radius: 10px; color: var(--text); background: #1b2733f5; box-shadow: 0 8px 24px #0008, inset 0 1px #ffffff0a; text-align: left; transform: translate(-50%, -50%) translateZ(var(--topology-depth)); transform-style: preserve-3d; transition: border-color .2s ease, box-shadow .2s ease; will-change: transform; }
+.topology-canvas[data-topology-motion=active] .topology-node { animation: topology-node-depth 10s cubic-bezier(.45,0,.55,1) infinite; animation-delay: var(--topology-delay); }
+.topology-node:hover, .topology-node[aria-pressed=true] { z-index: 4; border-color: var(--cyan); box-shadow: 0 0 0 3px #26d7f321, 0 12px 30px #0009; animation-play-state: paused; transform: translate(-50%, -50%) translateZ(calc(var(--topology-depth) + 54px)) scale(1.04); }
 .topology-node.critical { border-color: color-mix(in srgb, var(--critical) 72%, #516575); }
 .topology-node.warning { border-color: color-mix(in srgb, var(--warning) 72%, #516575); }
 .topology-node.unknown { border-style: dashed; opacity: .86; }
@@ -434,5 +437,8 @@ footer b { color: var(--green); padding: 0 7px; }
 .topology-session-list small { grid-column: 1 / -1; color: var(--muted); font-size: 9px; }
 .topology-no-sessions { margin-top: 9px; padding: 10px; border: 1px dashed #72889a55; border-radius: 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .topology-detail-link { margin-top: auto; font-size: 11px; }
+@keyframes topology-plane-orbit { 0%, 100% { transform: rotateX(1.5deg) rotateY(-2.3deg) translateZ(0); } 25% { transform: rotateX(-1deg) rotateY(2.6deg) translateZ(9px); } 50% { transform: rotateX(1.8deg) rotateY(3.2deg) translateZ(2px); } 75% { transform: rotateX(-1.4deg) rotateY(-2.8deg) translateZ(11px); } }
+@keyframes topology-node-depth { 0%, 100% { transform: translate(-50%, -50%) translateZ(var(--topology-depth)) rotateY(-1deg); } 50% { transform: translate(-50%, -50%) translateZ(calc(var(--topology-depth) + 32px)) rotateY(1deg); } }
 @media (max-width: 1180px) { .topology-workspace { grid-template-columns: 198px minmax(0, 1fr); } .topology-detail { grid-column: 1 / -1; display: grid; grid-template-columns: 1.1fr 1fr 1fr; } .topology-detail.empty { display: none; } .topology-detail-link { margin-top: 0; } }
 @media (max-width: 760px) { .topology-workspace { grid-template-columns: 1fr; min-height: 0; } .topology-filters { display: grid; grid-template-columns: 1fr 1fr; } .topology-filters>div:first-child, .topology-filter-note { grid-column: 1 / -1; } .topology-detail { grid-column: auto; display: flex; } .topology-canvas { min-height: 410px; } .topology-node { width: 128px; padding: 8px; } .topology-node strong { font-size: 10px; } .topology-node small { font-size: 8px; } .topology-canvas-footer { align-items: flex-start; } }
+@media (prefers-reduced-motion: reduce) { .topology-motion-plane, .topology-node, .topology-edge line { animation: none !important; transform: none !important; } .topology-node { transform: translate(-50%, -50%) !important; } }
