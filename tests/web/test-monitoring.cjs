@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function monitoring() {
+function monitoring(reducedMotion = false) {
   const elements = new Map();
   const intervals = [];
   const document = {
@@ -15,7 +15,7 @@ function monitoring() {
       return elements.get(id);
     }
   };
-  const context = vm.createContext({ document, location: { hash: '#overview' }, window: { addEventListener() {} },
+  const context = vm.createContext({ document, location: { hash: '#overview' }, window: { addEventListener() {}, matchMedia() { return { matches: reducedMotion }; } },
     console, setInterval: (callback, milliseconds) => intervals.push({ callback, milliseconds }),
     startDataSource() {}, PI_DATA_STATE: { policy: { windowSeconds: 600, referenceSeconds: 1800, memoryWindowSeconds: 900, recoverySamples: 3, measurementSeconds: 60, continuitySeconds: 180 } }
   });
@@ -58,21 +58,18 @@ test('dashboard clock uses full Portuguese date and Sao Paulo time independently
   assert.match(vm.runInContext("document.getElementById('current-datetime').textContent", page.context), / - \d{2}:\d{2}:\d{2}$/);
 });
 
-test('overview rotates metric pages before advancing to the next server and keeps compact monitoring', () => {
+test('overview renders a 3D orbit with all current metrics, monitoring and three server summaries', () => {
   const page = monitoring();
-  assert.equal(page.intervals[0].milliseconds, 10000);
-  for (const [id, count] of [['COGCGPRO12', 11], ['COGCGPRO12', 6], ['COGCGPRO12', 9], ['COGCGPRO34', 11]]) {
-    assert.ok(page.html().includes('aria-label="Alarmes ativos e histórico"'));
-    assert.equal((page.html().match(/data-metric="/g) || []).length, count);
-    assert.equal(vm.runInContext('SERVERS[carouselIndex].id', page.context), id);
-    assert.match(page.html(), /id="carousel-next"/);
-    assert.ok(page.html().includes('Monitoramento'));
-    assert.doesNotMatch(page.html(), /Troca automática/);
-    assert.ok(!page.html().includes('Limites demonstrativos'));
-    assert.ok(!page.html().includes('SERVIDORES MONITORADOS'));
-    page.intervals[0].callback();
-  }
-  assert.ok(page.html().includes('aria-label="Alarmes ativos e histórico"'));
+  const html = page.html();
+  assert.match(html, /class="orbit-stage"/);
+  assert.match(html, /data-orbit-motion="active"/);
+  assert.equal((html.match(/class="orbit-bubble /g) || []).length, 26);
+  assert.equal((html.match(/data-donut-server=/g) || []).length, 3);
+  assert.ok(html.includes('aria-label="Alarmes ativos e histórico"'));
+  assert.match(html, /id="carousel-next"/);
+  assert.match(html, /Foco atualizado a cada 4 s/);
+  assert.doesNotMatch(html, /Troca automática|Limites demonstrativos|SERVIDORES MONITORADOS/);
+  assert.ok(page.intervals.some(item => item.milliseconds === 4000));
 });
 
 test('monitoring has distinct symbols for critical, warning and unavailable states', () => {
@@ -174,17 +171,14 @@ test('measurements expire individually and disappear when the API is unavailable
   assert.equal(vm.runInContext('currentMetric(SERVERS[0], "runCPU")', page.context), null);
 });
 
-test('all 26 metrics are accessible for every server across the overview carousel', () => {
+test('all 26 metrics participate in the orbit for every configured server', () => {
   const page = monitoring();
-  const seen = new Map();
-  for (let step=0; step<9; step++) {
-    const id = vm.runInContext('SERVERS[carouselIndex].id',page.context);
-    if (!seen.has(id)) seen.set(id,new Set());
-    for (const match of page.html().matchAll(/data-metric="([^"]+)"/g)) seen.get(id).add(match[1]);
-    page.intervals[0].callback();
+  for (let index = 0; index < 3; index++) {
+    vm.runInContext(`carouselIndex=${index}; orbitFocusMetricKey=null; renderFleet()`, page.context);
+    const fields = new Set([...page.html().matchAll(/data-orbit-metric="([^"]+)"/g)].map(match => match[1]));
+    assert.equal(fields.size, 26);
+    assert.equal(vm.runInContext('orbitMetrics(SERVERS[carouselIndex]).length', page.context), 26);
   }
-  assert.equal(seen.size,3);
-  for (const fields of seen.values()) assert.equal(fields.size,26);
 });
 
 test('detail displays all metrics and escapes metadata without inventing process health', () => {
@@ -202,13 +196,43 @@ test('detail displays all metrics and escapes metadata without inventing process
   assert.doesNotMatch(combined,/ESPAÇO LIVRE|ARQUIVO ETL|Reset de contadores|MÉTRICAS DISPONÍVEIS NO PI/);
 });
 
-test('metric groups also rotate when only one server is configured', () => {
+test('orbit advances its focused metric every four seconds and respects pause', () => {
   const page=monitoring();
-  vm.runInContext('SERVERS.splice(1); renderFleet()',page.context);
-  page.intervals[0].callback();
-  assert.match(page.html(),/2 \/ 3 · 26 pontos/);
-  page.intervals[0].callback();
-  assert.match(page.html(),/3 \/ 3 · 26 pontos/);
+  const orbitInterval = page.intervals.find(item => item.milliseconds === 4000);
+  assert.ok(orbitInterval);
+  const first = vm.runInContext('orbitFocusMetricKey', page.context);
+  orbitInterval.callback();
+  const second = vm.runInContext('orbitFocusMetricKey', page.context);
+  assert.notEqual(second, first);
+  vm.runInContext('paused=true', page.context);
+  orbitInterval.callback();
+  assert.equal(vm.runInContext('orbitFocusMetricKey', page.context), second);
+});
+
+test('critical and warning metrics are prioritized in the orbit and server rings use equivalent sectors', () => {
+  const page = monitoring();
+  vm.runInContext(`
+    SERVERS[0].absoluteAlarms=[{metric:'runCPU',limit:9,state:20,timestamp:Date.now()}];
+    SERVERS[0].trends.find(t=>t.metric==='runMemory').state=10;
+    renderFleet();
+  `, page.context);
+  const ordered = vm.runInContext('orbitMetrics(SERVERS[0]).slice(0, 2).map(metric=>metric.state).join(",")', page.context);
+  assert.equal(ordered, 'critical,warning');
+  assert.match(page.html(), /orbit-bubble critical priority/);
+  assert.match(page.html(), /orbit-bubble warning priority/);
+  for (const id of ['COGCGPRO12', 'COGCGPRO34', 'COGCGPRO56']) assert.match(page.html(), new RegExp(`data-donut-server="${id}"`));
+  assert.equal((page.html().match(/data-donut-metric="runCPU"/g) || []).length, 3);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'styles.css'), 'utf8'), /conic-gradient\(var\(--runCPU\) 0deg 120deg, var\(--runMemory\) 120deg 240deg, var\(--runErrorsPerMinute\) 240deg 360deg\)/);
+});
+
+test('reduced motion freezes automatic orbit updates without changing data states', () => {
+  const page = monitoring(true);
+  const orbitInterval = page.intervals.find(item => item.milliseconds === 4000);
+  const focus = vm.runInContext('orbitFocusMetricKey', page.context);
+  orbitInterval.callback();
+  assert.equal(vm.runInContext('orbitFocusMetricKey', page.context), focus);
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'styles.css'), 'utf8');
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.orbit-bubble \{ animation: none !important; transition: none !important; \}/);
 });
 
 test('active alarms and history rotate independently without empty pages', () => {

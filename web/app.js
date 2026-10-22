@@ -11,6 +11,8 @@ let overviewMetricPage = 0;
 let detailMetricPage = 0;
 let detailAlarmPage = 0;
 const CAROUSEL_INTERVAL_MS = 10000;
+const ORBIT_INTERVAL_MS = 4000;
+let orbitFocusMetricKey = null;
 const ALARM_LABELS = { runCPU: 'CPU', runMemory: 'RAM', runPVT: 'Memória privada', runTRD: 'Threads', runErrorsPerMinute: 'Erros', runLocalPending: 'Fila local', runRemotePending: 'Fila remota' };
 function contextIcon(kind) {
   const paths = {
@@ -124,6 +126,107 @@ function fleetNavigation() {
     return `<button type="button" id="server-switch-${escapeHtml(server.id)}" class="server-switch ${health.state}" data-carousel-index="${index}" aria-pressed="${carouselIndex === index}"><i aria-hidden="true"></i><span><strong>${escapeHtml(server.name)}</strong><small>${HEALTH_STATES[health.state].label}</small></span></button>`;
   }).join('')}</div>${readingContext(SERVERS)}</div>`;
 }
+function metricState(metric, health) {
+  const signal = health.signals.filter(item => item.metric === metric.key)
+    .sort((a, b) => HEALTH_STATES[a.state].priority - HEALTH_STATES[b.state].priority)[0];
+  if (!hasMetricValue(metric.key, metric.value)) return { state: 'unknown', signal: null, statusLabel: 'Sem dados' };
+  if (signal) return { state: signal.state, signal, statusLabel: HEALTH_STATES[signal.state].label };
+  return { state: 'neutral', signal: null, statusLabel: 'Leitura atual válida' };
+}
+function orbitMetrics(server) {
+  const health = healthOf(server);
+  const severityOrder = { critical: 0, warning: 1, neutral: 2, unknown: 3 };
+  return serverMetricGroups(visibleMetrics(server)).flatMap(group => group.items.map(item => ({ ...item, group: group.title, groupSubtitle: group.subtitle })))
+    .map(item => ({ ...item, ...metricState(item, health) }))
+    .sort((a, b) => severityOrder[a.state] - severityOrder[b.state] || a.label.localeCompare(b.label, 'pt-BR'));
+}
+function orbitStyle(index, focus, total, state) {
+  const relative = ((index - focus + total) % total);
+  const angle = (relative / total) * Math.PI * 2 - Math.PI / 2;
+  const depth = Math.round(Math.sin(angle) * 100);
+  const x = Math.round(Math.cos(angle) * 44);
+  const y = Math.round(Math.sin(angle) * 34);
+  const prominence = (depth + 100) / 200;
+  const important = state === 'critical' || state === 'warning';
+  const scale = (0.52 + prominence * 0.43 + (important ? 0.08 : 0)).toFixed(2);
+  return `--orbit-x:${x}%;--orbit-y:${y}%;--orbit-depth:${depth}px;--orbit-scale:${scale};--orbit-order:${Math.round(depth + (important ? 20 : 0))}`;
+}
+function metricOrbit(server) {
+  const metrics = orbitMetrics(server);
+  if (!metrics.length) return '<section class="metric-orbit empty-orbit"><p>Sem métricas disponíveis para a órbita.</p></section>';
+  let focus = metrics.findIndex(metric => metric.key === orbitFocusMetricKey);
+  if (focus < 0) focus = 0;
+  const featured = metrics[focus];
+  const featuredValue = hasMetricValue(featured.key, featured.value)
+    ? (PI_TEXT_METRICS.has(featured.key) ? String(featured.value) : format(featured.value, featured.digits))
+    : '—';
+  const severity = featured.state === 'neutral' ? 'Normal' : featured.statusLabel;
+  const bubbleMarkup = metrics.map((metric, index) => {
+    const value = hasMetricValue(metric.key, metric.value) ? (PI_TEXT_METRICS.has(metric.key) ? String(metric.value) : format(metric.value, metric.digits)) : '—';
+    const priority = metric.state === 'critical' || metric.state === 'warning';
+    return `<button type="button" class="orbit-bubble ${metric.state}${priority ? ' priority' : ''}" data-orbit-metric="${escapeHtml(metric.key)}" data-metric="${escapeHtml(metric.key)}" style="${orbitStyle(index, focus, metrics.length, metric.state)}" aria-label="${escapeHtml(metric.label)}: ${escapeHtml(value)}${metric.unit ? ` ${escapeHtml(metric.unit)}` : ''}; ${escapeHtml(metric.label === featured.label ? 'em foco' : 'trazer ao foco')}"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(metric.unit || metric.groupSubtitle)}</small></button>`;
+  }).join('');
+  return `<section class="metric-orbit" aria-label="Órbita de 26 métricas de ${escapeHtml(server.name)}"><div class="orbit-heading"><div><span>ÓRBITA OPERACIONAL</span><h2>26 métricas em contexto</h2></div><p>${paused ? 'Órbita pausada' : 'Foco atualizado a cada 4 s'}</p></div><div class="orbit-stage" data-orbit-motion="${paused ? 'paused' : 'active'}"><div class="orbit-path orbit-path-back" aria-hidden="true"></div><div class="orbit-path orbit-path-front" aria-hidden="true"></div><div class="orbit-bubbles" aria-label="Selecione uma métrica para trazê-la ao foco">${bubbleMarkup}</div><article class="orbit-focus ${featured.state}" aria-live="polite"><span class="orbit-focus-eyebrow" data-orbit-focus-group>${escapeHtml(featured.group)} · ${escapeHtml(severity)}</span><h3 data-orbit-focus-name>${escapeHtml(featured.label)}</h3><strong data-orbit-focus-value>${escapeHtml(featuredValue)}<small>${hasMetricValue(featured.key, featured.value) ? escapeHtml(featured.unit || '') : ''}</small></strong><p data-orbit-focus-context>${escapeHtml(featured.groupSubtitle)} · ${hasMetricValue(featured.key, featured.value) ? escapeHtml(severity) : 'Estado não confirmado'}</p></article></div><p class="orbit-caption">Métricas críticas e de atenção recebem prioridade visual. Valores sem qualidade, vencidos ou ausentes permanecem como Sem dados.</p></section>`;
+}
+function refreshOrbitInPlace() {
+  const stage = main.querySelector?.('.orbit-stage');
+  const server = SERVERS[carouselIndex];
+  if (!stage || !server) return false;
+  const metrics = orbitMetrics(server);
+  const focus = metrics.findIndex(metric => metric.key === orbitFocusMetricKey);
+  if (focus < 0) return false;
+  for (const [index, metric] of metrics.entries()) {
+    const bubble = stage.querySelector?.(`[data-orbit-metric="${metric.key}"]`);
+    if (!bubble) return false;
+    const value = hasMetricValue(metric.key, metric.value) ? (PI_TEXT_METRICS.has(metric.key) ? String(metric.value) : format(metric.value, metric.digits)) : '—';
+    const priority = metric.state === 'critical' || metric.state === 'warning';
+    bubble.className = `orbit-bubble ${metric.state}${priority ? ' priority' : ''}`;
+    bubble.style.cssText = orbitStyle(index, focus, metrics.length, metric.state);
+    bubble.setAttribute('aria-label', `${metric.label}: ${value}${metric.unit ? ` ${metric.unit}` : ''}; ${metric.key === orbitFocusMetricKey ? 'em foco' : 'trazer ao foco'}`);
+  }
+  const featured = metrics[focus];
+  const severity = featured.state === 'neutral' ? 'Normal' : featured.statusLabel;
+  const reading = hasMetricValue(featured.key, featured.value) ? (PI_TEXT_METRICS.has(featured.key) ? String(featured.value) : format(featured.value, featured.digits)) : '—';
+  const panel = stage.querySelector?.('.orbit-focus');
+  if (!panel) return false;
+  panel.className = `orbit-focus ${featured.state}`;
+  const group = panel.querySelector?.('[data-orbit-focus-group]');
+  const name = panel.querySelector?.('[data-orbit-focus-name]');
+  const valueNode = panel.querySelector?.('[data-orbit-focus-value]');
+  const context = panel.querySelector?.('[data-orbit-focus-context]');
+  if (!group || !name || !valueNode || !context) return false;
+  group.textContent = `${featured.group} · ${severity}`;
+  name.textContent = featured.label;
+  valueNode.textContent = reading;
+  const unit = document.createElement?.('small');
+  if (unit && hasMetricValue(featured.key, featured.value)) {
+    unit.textContent = featured.unit || '';
+    valueNode.append(unit);
+  }
+  context.textContent = `${featured.groupSubtitle} · ${hasMetricValue(featured.key, featured.value) ? severity : 'Estado não confirmado'}`;
+  return true;
+}
+function donutMetric(server, key, label, unit, digits, health) {
+  const value = currentMetric(server, key);
+  const signal = health.signals.filter(item => item.metric === key).sort((a, b) => HEALTH_STATES[a.state].priority - HEALTH_STATES[b.state].priority)[0];
+  const state = !Number.isFinite(value) ? 'unknown' : signal?.state || 'neutral';
+  return { key, label, unit, digits, value, state, labelState: !Number.isFinite(value) ? 'Sem dados' : signal ? HEALTH_STATES[state].label : 'Sem alarme' };
+}
+function serverDonut(server) {
+  const health = healthOf(server);
+  const metrics = [
+    donutMetric(server, 'runCPU', 'CPU', '%', 1, health),
+    donutMetric(server, 'runMemory', 'RAM', '%', 1, health),
+    donutMetric(server, 'runErrorsPerMinute', 'Erros de scripts', '/min', 1, health)
+  ];
+  const active = health.signals.filter(signal => ['critical', 'warning'].includes(signal.state)).length;
+  const colors = metrics.map(metric => `--${metric.key}:${metric.state === 'critical' ? 'var(--critical)' : metric.state === 'warning' ? 'var(--warning)' : metric.state === 'unknown' ? 'var(--unknown)' : 'var(--cyan)'}`).join(';');
+  const legend = metrics.map(metric => `<li class="donut-legend-item ${metric.state}" data-donut-metric="${metric.key}"><span class="donut-swatch" aria-hidden="true"></span><span>${escapeHtml(metric.label)}<small>${escapeHtml(metric.labelState)}</small></span><strong>${Number.isFinite(metric.value) ? escapeHtml(format(metric.value, metric.digits)) : '—'}<em>${Number.isFinite(metric.value) ? escapeHtml(metric.unit) : 'Sem dados'}</em></strong></li>`).join('');
+  return `<article class="server-donut ${health.state}" data-donut-server="${escapeHtml(server.id)}"><div class="donut-server-heading"><div><span>ESTADO DO SERVIDOR</span><h3>${escapeHtml(server.name)}</h3></div>${statusBadge(health.state)}</div><div class="donut-layout"><div class="donut-chart" style="${colors}" role="img" aria-label="CPU, RAM e erros de scripts têm setores equivalentes; as cores indicam o estado"><div><strong>${active}</strong><span>${active === 1 ? 'alerta ativo' : 'alertas ativos'}</span></div></div><ul class="donut-legend">${legend}</ul></div><a href="#server/${encodeURIComponent(server.id)}" class="donut-details">Ver detalhes <span aria-hidden="true">↗</span></a></article>`;
+}
+function serverDonuts() {
+  return `<section class="server-donuts" aria-label="Resumo de CPU, RAM e erros por servidor"><div class="donut-section-heading"><div><span>VISÃO DA FROTA</span><h2>CPU, RAM e erros de scripts</h2></div><p>Setores equivalentes; a cor representa a severidade.</p></div><div class="donut-grid">${SERVERS.map(serverDonut).join('')}</div></section>`;
+}
 function renderFleet() {
   if (!SERVERS.length) {
     main.innerHTML = '<div class="empty-state">Aguardando servidores.</div>';
@@ -131,17 +234,24 @@ function renderFleet() {
   }
   carouselIndex = ((carouselIndex % SERVERS.length) + SERVERS.length) % SERVERS.length;
   const server = SERVERS[carouselIndex];
-  const groups = serverMetricGroups(visibleMetrics(server));
-  const pages = ['Runtime e scripts', 'Eventos', 'Servidor e coleta'];
-  overviewMetricPage = ((overviewMetricPage % pages.length) + pages.length) % pages.length;
-  renderMetricPageControls(pages, overviewMetricPage);
-  main.innerHTML = `<section class="server-carousel" aria-label="Carrossel de servidores">${fleetNavigation()}<aside id="overview-monitoring" aria-label="Alarmes ativos e histórico">${monitoringPanel()}</aside><div class="metric-server-identity"><div><span>MEDIÇÕES</span><h1>${escapeHtml(server.name)}</h1><small>${escapeHtml([server.site, server.environment].filter(Boolean).join(' · '))}</small></div><div class="carousel-controls"><a class="back-link" href="#server/${encodeURIComponent(server.id)}">Detalhes ↗</a><button id="carousel-previous" type="button" aria-label="Servidor anterior">←</button><button id="carousel-next" type="button" aria-label="Próximo servidor">→</button></div></div><div class="primary-grid carousel-metrics all-metrics">${metricSections(groups.slice(overviewMetricPage * 2, overviewMetricPage * 2 + 2), healthOf(server))}</div><p class="carousel-caption"><span>${overviewMetricPage + 1} / ${pages.length} · 26 pontos</span><span>${!server.collecting ? 'Sem dados recentes · ' : ''}${paused ? 'Atualização pausada · ' : ''}Amostra: ${sampleAge(server)}</span></p></section>`;
+  document.getElementById('metric-page-controls').innerHTML = '';
+  main.innerHTML = `<section class="server-carousel orbit-dashboard" aria-label="Visão geral dos servidores">${fleetNavigation()}<div class="metric-server-identity"><div><span>ÓRBITA ATIVA</span><h1>${escapeHtml(server.name)}</h1><small>${escapeHtml([server.site, server.environment].filter(Boolean).join(' · '))}</small></div><div class="carousel-controls"><a class="back-link" href="#server/${encodeURIComponent(server.id)}">Detalhes ↗</a><button id="carousel-previous" type="button" aria-label="Servidor anterior">←</button><button id="carousel-next" type="button" aria-label="Próximo servidor">→</button></div></div>${metricOrbit(server)}<aside id="overview-monitoring" aria-label="Alarmes ativos e histórico">${monitoringPanel()}</aside>${serverDonuts()}<p class="carousel-caption"><span>26 pontos na órbita</span><span>${!server.collecting ? 'Sem dados recentes · ' : ''}${paused ? 'Atualização pausada · ' : ''}Amostra: ${sampleAge(server)}</span></p></section>`;
 }
 function advanceCarousel() {
   if (paused || activeServerId || !SERVERS.length || !document.getElementById('carousel-next')) return;
-  overviewMetricPage = (overviewMetricPage + 1) % 3;
-  if (overviewMetricPage === 0) carouselIndex = (carouselIndex + 1) % SERVERS.length;
+  monitoringPage++;
   renderFleet();
+}
+function advanceOrbit() {
+  if (paused || activeServerId || !SERVERS.length || prefersReducedMotion()) return;
+  const metrics = orbitMetrics(SERVERS[carouselIndex]);
+  if (!metrics.length) return;
+  const index = metrics.findIndex(metric => metric.key === orbitFocusMetricKey);
+  orbitFocusMetricKey = metrics[(index + 1 + metrics.length) % metrics.length].key;
+  if (!refreshOrbitInPlace()) renderFleet();
+}
+function prefersReducedMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
 function metricCards(metrics, health = {signals: []}) {
   return metrics.map(m => {
@@ -260,6 +370,13 @@ document.getElementById('pause').addEventListener('click', event => {
   renderConnectionState();
 });
 main.addEventListener('click', event => {
+  const orbitBubble = event.target.closest('[data-orbit-metric]');
+  if (orbitBubble) {
+    orbitFocusMetricKey = orbitBubble.dataset.orbitMetric;
+    if (!refreshOrbitInPlace()) renderFleet();
+    document.querySelector?.(`[data-orbit-metric="${orbitFocusMetricKey}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   const detailAlarmPageButton = event.target.closest('[data-detail-alarm-page]');
   if (detailAlarmPageButton) { detailAlarmPage = Number(detailAlarmPageButton.dataset.detailAlarmPage); renderDetail(SERVERS.find(server => server.id === activeServerId)); return; }
   const detailMetricPageButton = event.target.closest('[data-detail-metric-page]');
@@ -282,7 +399,6 @@ setInterval(() => {
   const interacting = document.activeElement?.closest('#main a, #main button, #metric-page-controls button');
   if (paused || interacting) return;
   if (!paused && !activeServerId) {
-    monitoringPage++;
     advanceCarousel();
   } else if (activeServerId) {
     detailMetricPage = (detailMetricPage + 1) % 3;
@@ -290,6 +406,7 @@ setInterval(() => {
     renderDetail(SERVERS.find(server => server.id === activeServerId));
   }
 }, CAROUSEL_INTERVAL_MS);
+setInterval(advanceOrbit, ORBIT_INTERVAL_MS);
 setInterval(() => {
   if (document.activeElement?.closest('#main a, #main button, #metric-page-controls button')) return;
   if (activeServerId) {
