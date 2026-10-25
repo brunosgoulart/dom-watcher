@@ -2,8 +2,8 @@ import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / 'scada_api'))
 
-"""Version: 1.3 | Date: 14/10/2026
-Changes: Tested AF session reuse, recovery after snapshot failure and failed-connect cleanup; isolated DLL validation from write-guard tests.
+"""Version: 1.4 | Date: 24/10/2026
+Changes: Updated API tests for the backend-only HTTP handler after static web serving was removed.
 """
 import json
 import threading
@@ -124,7 +124,7 @@ class SnapshotTests(unittest.TestCase):
         config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
         store = SnapshotStore(config)
         store.poll()
-        http = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store, Path(__file__).resolve().parents[2] / "web"))
+        http = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store))
         thread = threading.Thread(target=http.serve_forever, daemon=True)
         thread.start()
         url = f"http://127.0.0.1:{http.server_port}/api/v1/status"
@@ -134,6 +134,9 @@ class SnapshotTests(unittest.TestCase):
             with self.assertRaises(HTTPError) as error:
                 urlopen(Request(url, data=b"{}", method="POST"))
             self.assertEqual(error.exception.code, 501)
+            with self.assertRaises(HTTPError) as error:
+                urlopen(f"http://127.0.0.1:{http.server_port}/")
+            self.assertEqual(error.exception.code, 403)
         finally:
             http.shutdown()
             http.server_close()

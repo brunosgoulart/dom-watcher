@@ -1,5 +1,5 @@
-"""Version: 1.5 | Date: 14/10/2026
-Changes: Selected COM or read-only AF SDK explicitly, validated the AF assembly path and limited COM initialization to the COM adapter.
+"""Version: 1.6 | Date: 24/10/2026
+Changes: Removed static web serving and added an explicit simulated API mode for future interface development.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import time
 import tomllib
 from contextlib import closing
 from datetime import datetime, timezone
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from pi_client import PIReadClient
@@ -307,11 +307,8 @@ class SnapshotStore:
                 pythoncom.CoUninitialize()
 
 
-def make_handler(store: SnapshotStore, web_root: Path):
-    class Handler(SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(web_root), **kwargs)
-
+def make_handler(store: SnapshotStore):
+    class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path.split("?")[0] == "/api/v1/status":
                 body = json.dumps(store.get(), allow_nan=False, ensure_ascii=False).encode("utf-8")
@@ -322,14 +319,7 @@ def make_handler(store: SnapshotStore, web_root: Path):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if self.path.split("?")[0].startswith("/api/"):
-                self.send_error(404)
-                return
-            super().do_GET()
-
-        def list_directory(self, path):
             self.send_error(403)
-            return None
 
         def end_headers(self):
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -345,9 +335,19 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.toml"))
     parser.add_argument("--port", type=int, default=8767)
     parser.add_argument("--check-config", action="store_true", help="Validate local PI configuration and dependencies without connecting or writing.")
+    parser.add_argument("--simulate", action="store_true", help="Serve synthetic read-only data for interface development; never connects to PI.")
     args = parser.parse_args()
+    if args.simulate and args.check_config:
+        parser.error("--simulate cannot be combined with --check-config")
+    temporary_history = None
     try:
-        config = load_config(args.config)
+        if args.simulate:
+            from tempfile import TemporaryDirectory
+            from simulated_data import simulated_config
+            temporary_history = TemporaryDirectory(prefix="dom-watcher-simulated-")
+            config = simulated_config(Path(temporary_history.name) / "history.sqlite3")
+        else:
+            config = load_config(args.config)
     except (OSError, ValueError, TypeError) as exc:
         parser.error(f"Configuration error: {exc}")
     if args.check_config:
@@ -355,10 +355,16 @@ def main() -> None:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         raise SystemExit(0 if report["readyForConnection"] else 2)
     store = SnapshotStore(config)
-    worker = threading.Thread(target=store.poll, name="pi-com-reader", daemon=True)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, Path(__file__).resolve().parents[1] / "web"))
+    if args.simulate:
+        from simulated_data import publish_simulation
+        worker = threading.Thread(target=publish_simulation, args=(store,), name="simulated-data", daemon=True)
+        mode = "simulated API"
+    else:
+        worker = threading.Thread(target=store.poll, name="pi-reader", daemon=True)
+        mode = "SCADA API"
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store))
     worker.start()
-    print(f"SCADA front-end/API: http://127.0.0.1:{args.port}/", flush=True)
+    print(f"{mode}: http://127.0.0.1:{args.port}/api/v1/status", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -367,6 +373,8 @@ def main() -> None:
         store.stop.set()
         server.server_close()
         worker.join(timeout=3)
+        if temporary_history is not None:
+            temporary_history.cleanup()
 
 
 if __name__ == "__main__":

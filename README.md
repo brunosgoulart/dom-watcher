@@ -1,10 +1,16 @@
 # Runtime Monitor
 
-Monitoramento de servidores SCADA com coleta no PI Data Archive, alarmes de tendência e limites absolutos independentes.
+Monitor local para coletar métricas de servidores SCADA no PI Data Archive, avaliar tendências e limites absolutos, e disponibilizar um contrato JSON para a interface operacional.
 
-## Operação
+## Estado atual
 
-A configuração operacional é `scada_api/config.toml`, incluída no Git com `pidatapro`, AF SDK e as entradas dos três servidores COGCGPRO. Não contém credenciais e mantém a escrita desabilitada. A estrutura de referência está em `scada_api/config.reference.toml`. Confira SDK e permissões do ambiente antes de iniciar a coleta.
+A API continua somente leitura e não serve arquivos estáticos. A interface operacional em `web/` é independente e consome exclusivamente o contrato `GET /api/v1/status`.
+
+O adaptador operacional é o AF SDK em modo somente leitura. Escritas no PI continuam desabilitadas por padrão e o adaptador AF SDK as rejeita.
+
+## Executar com PI real
+
+Na raiz do projeto:
 
 ```powershell
 python -m pip install -r scada_api/requirements.txt
@@ -12,21 +18,30 @@ python -B scada_api/server.py --config scada_api/config.toml --check-config
 python -B scada_api/server.py --config scada_api/config.toml --port 8768
 ```
 
-Acesse `http://127.0.0.1:8768/#overview`. A API e o painel atendem somente loopback. A escrita PI vem desabilitada; AF SDK é somente leitura.
+Consulte o estado em [http://127.0.0.1:8768/api/v1/status](http://127.0.0.1:8768/api/v1/status). A API atende somente em loopback e não possui endpoints HTTP de mutação.
 
-O adaptador adotado é `piAdapter = "af-sdk"`, conforme a configuração de referência. Instale o AF SDK no host e configure `piAfSdkDll` com o caminho da DLL, se diferente do padrão.
+## Simulação para desenvolvimento da futura interface
 
-As 26 tags disponíveis de COGCGPRO12, COGCGPRO34 e COGCGPRO56 estão mapeadas em `scada_api/config.toml` e `scada_api/config.cogcgpro.toml` (78 entradas, sem escrita). As duas telas apresentam seis seções distribuídas em três grupos selecionáveis. Na visão geral, o carrossel percorre os três grupos antes de mudar de servidor. Timestamp de coleta, arquivo lido e status preservam o conteúdo publicado no PI. Não substitua uma configuração operacional existente sem preservar seus parâmetros. Consulte as verificações de unidades em `scada_api/README.md`.
+Sem carregar `config.toml`, conectar ao PI ou escrever pontos:
 
-O visual usa superfícies grafite, navegação verde e sinalizações de severidade com cor e texto, inspirado no [UptimeRobot](https://uptimerobot.com/). Ícones de traço fino distinguem limites de elevação, e a faixa de leituras recentes contextualiza a qualidade dos dados sem confundi-la com a saúde do SCADA. Alarmes ativos e histórico são separados; ausência de dados nunca é apresentada como normalidade. A conexão AF SDK, as tags e os limites não são alterados pelo tema.
+```powershell
+python -B scada_api/server.py --simulate --port 8769
+```
 
-`--check-config` verifica configuração e dependências locais sem conectar ao historiador nem escrever. Retorna código 0 quando essas verificações passam e 2 quando há pendências; não comprova autenticação nem existência das tags. Use o mesmo Python que executará o serviço. A tela mostra as medições válidas individualmente, mesmo durante a formação do histórico das tendências; dados vencidos ou sem qualidade não são exibidos como atuais.
+O endpoint será `http://127.0.0.1:8769/api/v1/status`. A resposta traz `"source": "simulated"`, três servidores de exemplo e valores variáveis identificados como simulados. Esse modo usa um SQLite temporário e é descartado ao encerrar o processo.
 
-Consulte [configuração, alarmes, segurança e implantação](scada_api/README.md). As pendências de ambiente devem ser resolvidas antes da liberação operacional.
+Em outro terminal, abra a interface no mesmo contexto de origem da API:
+
+```powershell
+python -B tools/interface_preview.py --port 8770 --api-port 8769
+```
+
+Acesse `http://127.0.0.1:8770`. A tela usa uma órbita 3D para priorizar CPU, memória, threads, filas e erros. Dados sem qualidade ou ausentes aparecem como `Sem dados` ou `Estado não confirmado`; a interface não interpreta ausência como normalidade.
 
 ## Estrutura
 
-- `scada_api/`: serviço, configuração e diagnósticos.
-- `web/`: interface operacional.
-- `tests/`: verificações automatizadas, separadas da aplicação.
+- `scada_api/`: serviço, API, configuração, diagnósticos e fonte simulada.
+- `tests/python/`: testes do backend e do contrato simulado.
 - `.vscode/launch.json`: configuração de execução no editor.
+
+Detalhes de configuração, tendências, segurança e implantação estão em [scada_api/README.md](scada_api/README.md).

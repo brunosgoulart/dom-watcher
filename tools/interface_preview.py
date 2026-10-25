@@ -1,201 +1,49 @@
-"""Serve a local, read-only SCADA dashboard preview with synthetic PI values.
-
-This utility never connects to PI Data Archive and never writes PI points. It is
-intended solely for reviewing the web interface before real tag mappings exist.
-"""
+"""Local static preview that forwards the read-only API without changing it."""
 from __future__ import annotations
 
 import argparse
-import sys
-import math
-import threading
-import time
-from datetime import datetime, timezone
-from http.server import ThreadingHTTPServer
+import http.client
+import mimetypes
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scada_api'))
-from server import METRICS, SnapshotStore, make_handler
-from absolute_alarms import evaluate_absolute
+ROOT = Path(__file__).resolve().parents[1] / "web"
 
-
-SIMULATED_METRICS = (
-    "runCPU", "runMemory", "runPVT", "runTRD", "runLocalPending",
-    "runRemotePending", "runOccupancy", "runErrorsPerMinute", "serverCPU",
-    "serverHDL", "ioQueuePending", "ioQueueAvgDelay", "totalTime",
-    "runUptimeMinutes", "remoteDiscardPercent", "remoteHandledRate",
-    "runAvgScriptTime", "runDiscardedEvents", "runErrors", "runHDL",
-    "runPageFaults", "remoteDiscardedRate", "serverPVT",
-    "collectionTimestamp", "fileRead", "serverStatus",
-)
-
-PROFILES = (
-    {
-        "id": "COGCGPRO12", "name": "COGCGPRO12", "site": "Simulação",
-        "environment": "Prévia local", "role": "Threads em elevação", "trend": {"runTRD": 10},
-        "metrics": {
-            "runCPU": 95.0, "runMemory": 61.5, "runPVT": 821_248, "runTRD": 126,
-            "runLocalPending": 4, "runRemotePending": 2, "runOccupancy": 43.2,
-            "runErrorsPerMinute": 0.2, "serverCPU": 18.4, "serverHDL": 874,
-            "ioQueuePending": 1, "ioQueueAvgDelay": 3.4, "totalTime": 0.21,
-            "runUptimeMinutes": 18_420, "localDiscardPercent": 0.03,
-            "remoteDiscardPercent": 0.01,
-        },
-    },
-    {
-        "id": "COGCGPRO34", "name": "COGCGPRO34", "site": "Simulação",
-        "environment": "Prévia local", "role": "CPU em elevação", "trend": {"runCPU": 10},
-        "metrics": {
-            "runCPU": 78.6, "runMemory": 72.4, "runPVT": 906_240, "runTRD": 184,
-            "runLocalPending": 61, "runRemotePending": 12, "runOccupancy": 68.7,
-            "runErrorsPerMinute": 1.3, "serverCPU": 44.8, "serverHDL": 1_128,
-            "ioQueuePending": 7, "ioQueueAvgDelay": 11.2, "totalTime": 0.38,
-            "runUptimeMinutes": 9_860, "localDiscardPercent": 0.18,
-            "remoteDiscardPercent": 0.05,
-        },
-    },
-    {
-        "id": "COGCGPRO56", "name": "COGCGPRO56", "site": "Simulação",
-        "environment": "Prévia local", "role": "Memória em elevação", "trend": {"runMemory": 20},
-        "metrics": {
-            "runCPU": 91.2, "runMemory": 94.1, "runPVT": 1_126_400, "runTRD": 246,
-            "runLocalPending": 318, "runRemotePending": 87, "runOccupancy": 89.6,
-            "runErrorsPerMinute": 7.8, "serverCPU": 76.3, "serverHDL": 1_796,
-            "ioQueuePending": 29, "ioQueueAvgDelay": 42.8, "totalTime": 0.94,
-            "runUptimeMinutes": 2_740, "localDiscardPercent": 0.94,
-            "remoteDiscardPercent": 0.36,
-        },
-    },
-)
-
-TREND_LABELS = {
-    "runTRD": "Threads",
-    "runCPU": "CPU", "runMemory": "RAM", "runPVT": "Memória privada",
-    "runErrorsPerMinute": "Erros de scripts", "runLocalPending": "Fila local",
-    "runRemotePending": "Fila remota",
-}
-
-
-def simulated_values(profile: dict, now_seconds: float) -> dict:
-    """Keep every displayed numeric value fresh, with a small harmless variation."""
-    phase = (hash(profile["id"]) % 10) + now_seconds / 12
-    values = dict(profile["metrics"])
-    values.update(runAvgScriptTime=0.004, runDiscardedEvents=12, runErrors=48,
-                  runHDL=920, runPageFaults=12480, remoteDiscardedRate=0.2,
-                  remoteHandledRate=38.5, serverPVT=245760,
-                  collectionTimestamp=datetime.fromtimestamp(now_seconds, timezone.utc).isoformat(),
-                  fileRead=f"Coleta_{profile['id']}_20261019.xml", serverStatus="Em execução (simulado)")
-    if profile["trend"].get("runTRD"):
-        values["runTRD"] += int((now_seconds % 1800) / 60 * 4)
-    for key, amplitude in (("runCPU", 0.35), ("runMemory", 0.2), ("runPVT", 512),
-                           ("runErrorsPerMinute", 0.05), ("serverCPU", 0.3),
-                           ("ioQueueAvgDelay", 0.4), ("totalTime", 0.01)):
-        values[key] = round(max(0, values[key] + math.sin(phase) * amplitude), 3)
-    return values
-
-
-def trend(metric: str, state: int, timestamp: float) -> dict:
-    labels = {0: "Normal", 10: "Atenção", 20: "Crítico"}
-    slopes = {0: 0.0, 10: 4.0 if metric == "runTRD" else 0.62, 20: 1.18}
-    scores = {0: 0.0, 10: 2.8, 20: 7.4}
-    return {
-        "metric": metric, "label": TREND_LABELS[metric], "state": state,
-        "stateLabel": labels[state], "confirmedState": state, "sampleTime": timestamp,
-        "evaluatedAt": timestamp, "reason": "Dados simulados localmente para avaliação visual.",
-        "longWindowReady": True, "slope": slopes[state], "score": scores[state],
-        "baselineSlope": 0.0, "windowSeconds": 600, "severityWindowSeconds": 600,
-        "riseDurationSeconds": 600 if state else 0, "referenceReady": True,
-        "pendingSamples": 0, "writeStatus": "disabled",
-    }
-
-
-def simulated_servers(now_ms: float | None = None) -> list[dict]:
-    now_ms = time.time() * 1000 if now_ms is None else now_ms
-    now_seconds = now_ms / 1000
-    servers = []
-    for profile in PROFILES:
-        values = simulated_values(profile, now_seconds)
-        metrics = {key: values.get(key) for key in METRICS}
-        quality = {
-            key: {"good": True, "status": "Simulated", "timestamp": now_ms}
-            for key in SIMULATED_METRICS
-        }
-        servers.append({
-            **{key: profile[key] for key in ("id", "name", "site", "environment", "role")},
-            "collecting": True, "sampleTime": now_ms, "metrics": metrics,
-            "metricQuality": quality, "histories": {"local": [], "remote": []},
-            "trends": [trend(metric, profile["trend"].get(metric, 0), now_ms) for metric in TREND_LABELS],
-            "message": "Dados simulados localmente; não há leitura ou escrita no PI.",
-        })
-    for server in servers:
-        server["absoluteAlarms"] = evaluate_absolute(
-            {"absoluteLimits": {"runCPU": 90.0, "runMemory": 90.0}}, server, now_ms, 120)
-        for alarm in server["absoluteAlarms"]:
-            alarm["writeStatus"] = "disabled"
-    return servers
-
-
-def publish_simulation(store: SnapshotStore) -> None:
-    while not store.stop.is_set():
-        now_ms = time.time() * 1000
-        servers = simulated_servers(now_ms)
-        store.record_active_alarms(servers, int(now_ms))
-        with store.lock:
-            store.snapshot.update(
-                servers=servers, serviceStatus="connected", alarmHistory=store.alarm_history(),
-                generatedAt=datetime.now(timezone.utc).isoformat(),
-            )
-        store.stop.wait(3)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the local simulated SCADA dashboard preview.")
-    parser.add_argument("--port", type=int, default=8769)
-    args = parser.parse_args()
-    # Preview history must never read or contaminate the operational SQLite file.
-    with TemporaryDirectory(prefix="dom-watcher-preview-") as history_directory:
-        serve_preview(args.port, Path(history_directory) / "history.sqlite3")
-
-
-def serve_preview(port: int, history_path: Path) -> None:
-    config = {
-        "piAdapter": "simulated", "staleSeconds": 120, "enableWrites": False,
-        "historyDbPath": str(history_path),
-        "servers": [{key: profile[key] for key in ("id", "name", "site", "environment", "role")} for profile in PROFILES],
-    }
-    store = SnapshotStore(config)
-    worker = threading.Thread(target=publish_simulation, args=(store,), name="simulated-pi-preview", daemon=True)
-    base_handler = make_handler(store, Path(__file__).resolve().parents[1] / "web")
-
-    class PreviewHandler(base_handler):
+def handler(api_port: int):
+    class PreviewHandler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path.split("?")[0] == "/pi-config.js":
-                content = b"const PI_API_CONFIG = Object.freeze({statusUrl:'/api/v1/status',refreshMs:3000,timeoutMs:8000,allowSimulatedData:true});"
-                self.send_response(200)
-                self.send_header("Content-Type", "application/javascript; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Content-Length", str(len(content)))
-                self.end_headers()
-                self.wfile.write(content)
+            if self.path.split("?", 1)[0] == "/api/v1/status":
+                connection = http.client.HTTPConnection("127.0.0.1", api_port, timeout=5)
+                try:
+                    connection.request("GET", "/api/v1/status")
+                    response = connection.getresponse()
+                    body = response.read()
+                    self.send_response(response.status)
+                    self.send_header("Content-Type", response.getheader("Content-Type", "application/json; charset=utf-8"))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers(); self.wfile.write(body)
+                finally:
+                    connection.close()
                 return
-            super().do_GET()
-
-    class PreviewServer(ThreadingHTTPServer):
-        allow_reuse_address = False
-
-    http_server = PreviewServer(("127.0.0.1", port), PreviewHandler)
-    worker.start()
-    print(f"Simulated SCADA preview: http://127.0.0.1:{port}/", flush=True)
-    try:
-        http_server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        store.stop.set()
-        http_server.server_close()
-        worker.join(timeout=3)
-
+            relative = self.path.split("?", 1)[0].lstrip("/") or "index.html"
+            target = (ROOT / relative).resolve()
+            if ROOT not in target.parents and target != ROOT or not target.is_file():
+                self.send_error(404); return
+            body = target.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", mimetypes.guess_type(str(target))[0] or "application/octet-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+        def log_message(self, format, *args): pass
+    return PreviewHandler
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8769)
+    parser.add_argument("--api-port", type=int, default=8768)
+    args = parser.parse_args()
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler(args.api_port))
+    print(f"Interface preview: http://127.0.0.1:{args.port}", flush=True)
+    server.serve_forever()

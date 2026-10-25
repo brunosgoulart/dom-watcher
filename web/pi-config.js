@@ -1,4 +1,3 @@
-/* Version: 1.0 | Date: 13/10/2026
-Changes: Configured same-origin read-only PI status endpoint, polling interval and request timeout. */
-'use strict';
-const PI_API_CONFIG = Object.freeze({ statusUrl: '/api/v1/status', refreshMs: 10000, timeoutMs: 8000, allowSimulatedData: false });
+// In production, publish this interface behind the same reverse proxy as the API.
+// For a different endpoint, define window.RUNTIME_MONITOR_API before app.js loads.
+window.RUNTIME_MONITOR_API = window.RUNTIME_MONITOR_API || '/api/v1/status';
