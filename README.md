@@ -20,7 +20,7 @@ python -B scada_api/server.py --config scada_api/config.toml --port 8768
 
 Consulte o estado em [http://127.0.0.1:8768/api/v1/status](http://127.0.0.1:8768/api/v1/status). A API atende somente em loopback e não possui endpoints HTTP de mutação.
 
-## Simulação para desenvolvimento da futura interface
+## Interface orbital
 
 Sem carregar `config.toml`, conectar ao PI ou escrever pontos:
 
@@ -28,7 +28,7 @@ Sem carregar `config.toml`, conectar ao PI ou escrever pontos:
 python -B scada_api/server.py --simulate --port 8769
 ```
 
-O endpoint será `http://127.0.0.1:8769/api/v1/status`. A resposta traz `"source": "simulated"`, três servidores de exemplo e valores variáveis identificados como simulados. Esse modo usa um SQLite temporário e é descartado ao encerrar o processo.
+O endpoint será `http://127.0.0.1:8769/api/v1/status`. A resposta traz `"source": "simulated"` e preserva um cenário básico de três servidores: estável, em atenção e crítico. Esse modo usa um SQLite temporário e é descartado ao encerrar o processo.
 
 Em outro terminal, abra a interface no mesmo contexto de origem da API:
 
@@ -36,11 +36,13 @@ Em outro terminal, abra a interface no mesmo contexto de origem da API:
 python -B tools/interface_preview.py --port 8770 --api-port 8769
 ```
 
-Acesse `http://127.0.0.1:8770`. A tela usa uma órbita 3D para priorizar CPU, memória, threads, filas e erros. Dados sem qualidade ou ausentes aparecem como `Sem dados` ou `Estado não confirmado`; a interface não interpreta ausência como normalidade.
+Acesse `http://127.0.0.1:8770`. A aplicação usa exclusivamente a interface orbital em `web/`, com uma órbita 3D para priorizar CPU, memória, threads, filas e erros. Dados sem qualidade ou ausentes aparecem como `Sem dados` ou `Estado não confirmado`; a interface não interpreta ausência como normalidade.
 
 ## Estrutura
 
-- `scada_api/`: serviço, API, configuração, diagnósticos e fonte simulada.
+- `web/`: interface orbital operacional, sem dependências externas.
+- `tools/interface_preview.py`: host local da interface e proxy somente-leitura para a API.
+- `scada_api/`: serviço, API, configuração operacional, diagnóstico AF SDK e fonte simulada.
 - `tests/python/`: testes do backend e do contrato simulado.
 - `.vscode/launch.json`: configuração de execução no editor.
 

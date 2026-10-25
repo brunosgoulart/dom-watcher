@@ -220,20 +220,20 @@ class ConfigTests(unittest.TestCase):
         dll_check = patch("server.os.path.exists", return_value=True)
         dll_check.start()
         self.addCleanup(dll_check.stop)
-        self.path = Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml"
+        self.path = Path(__file__).resolve().parents[1] / "fixtures" / "config.toml"
         self.config = load_config(self.path)
 
     def load_fake(self, config):
         with patch("server.tomllib.load", return_value=copy.deepcopy(config)):
             return load_config(self.path)
 
-    def test_reference_outputs_42_disabled(self):
+    def test_fixture_outputs_disabled(self):
         self.assertFalse(self.config["enableWrites"])
-        self.assertEqual(sum(len(s["outputs"]) for s in self.config["servers"]), 42)
+        self.assertEqual(sum(len(s["outputs"]) for s in self.config["servers"]), 6)
 
     def test_output_collision_and_input_overlap_rejected(self):
         c = copy.deepcopy(self.config)
-        c["servers"][1]["outputs"]["runCPU"] = c["servers"][0]["outputs"]["runCPU"]
+        c["servers"][0]["outputs"]["runMemory"] = c["servers"][0]["outputs"]["runCPU"]
         with self.assertRaises(ValueError):
             self.load_fake(c)
         c = copy.deepcopy(self.config)

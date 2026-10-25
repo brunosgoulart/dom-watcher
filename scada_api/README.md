@@ -1,6 +1,6 @@
 # Runtime Monitor API
 
-Serviço local de coleta PI para monitoramento SCADA. Ele lê métricas, valida qualidade e frescor, calcula tendências e limites absolutos e expõe um snapshot JSON. Não inclui interface web.
+Serviço local de coleta PI para monitoramento SCADA. Ele lê métricas, valida qualidade e frescor, calcula tendências e limites absolutos e expõe um snapshot JSON consumido pela interface orbital em `../web/`.
 
 ## Contrato HTTP
 
@@ -12,7 +12,7 @@ O servidor escuta somente em `127.0.0.1`.
 
 O snapshot contém `source`, `serviceStatus`, `generatedAt`, `servers`, `alarmHistory` e a política de tendências. Cada servidor inclui métricas, qualidade/timestamp por métrica, tendências, limites absolutos e históricos de filas.
 
-`source` é `af-sdk`, `pi-sdk-com` ou `simulated`. Uma futura interface deve apresentar a origem `simulated` claramente e nunca tratá-la como leitura operacional.
+`source` é `af-sdk`, `pi-sdk-com` ou `simulated`. A interface orbital apresenta a origem `simulated` claramente e nunca a trata como leitura operacional.
 
 ## Adaptadores e segurança
 
@@ -23,7 +23,7 @@ O snapshot contém `source`, `serviceStatus`, `generatedAt`, `servers`, `alarmHi
 
 ## Configuração real
 
-`config.toml` contém o perfil operacional; `config.reference.toml` é uma referência sem tags de entrada. Os caminhos Windows em TOML devem usar aspas simples ou barras `/`, por exemplo:
+`config.toml` contém o único perfil operacional distribuído, com as tags aprovadas dos servidores COGCGPRO12, COGCGPRO34 e COGCGPRO56. Os caminhos Windows em TOML devem usar aspas simples ou barras `/`, por exemplo:
 
 ```toml
 piAdapter = "af-sdk"
@@ -45,7 +45,7 @@ python -B scada_api/server.py --config scada_api/config.toml --port 8768
 
 `--check-config` não abre conexão PI e não escreve. Ele valida o arquivo, o adaptador e as dependências locais, mas não confirma credenciais Windows, acesso ao PI ou existência das tags.
 
-Para desenvolver uma interface sem PI, use `--simulate --port 8769`. Esse modo não carrega o arquivo operacional, não abre conexões e não persiste seu SQLite temporário após o encerramento.
+Para desenvolver ou demonstrar a interface sem PI, use `--simulate --port 8769`. Esse modo preserva um cenário básico com COGCGPRO12, COGCGPRO34 e COGCGPRO56, não carrega o arquivo operacional, não abre conexões e não persiste seu SQLite temporário após o encerramento.
 
 ## Testes
 

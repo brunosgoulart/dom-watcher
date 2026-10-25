@@ -8,4 +8,5 @@ afsdk_runtime_debug.txt
 /afsdk_*.txt
 out.txt
 verify.txt
+/scada_api/runtime-history.sqlite3
 

@@ -12,6 +12,8 @@ from absolute_alarms import evaluate_absolute, validate_absolute
 from server import SnapshotStore, empty_server, load_config
 from trend_output import TrendPublisher
 
+FIXTURE_CONFIG = Path(__file__).resolve().parents[1] / "fixtures" / "config.toml"
+
 
 class AbsoluteAlarmTests(unittest.TestCase):
     def setUp(self):
@@ -95,14 +97,14 @@ class AbsoluteAlarmTests(unittest.TestCase):
         publisher.publish("s", alarms, client, 162000)
         self.assertEqual(alarms[0]["writeStatus"], "failed")
 
-    def reference_config(self):
+    def fixture_config(self):
         with patch("server.os.path.exists", return_value=True):
-            return load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+            return load_config(FIXTURE_CONFIG)
 
-    def test_reference_defaults_disabled_and_original_trends_preserved(self):
-        config = self.reference_config()
+    def test_fixture_defaults_disabled_and_original_trends_preserved(self):
+        config = self.fixture_config()
         self.assertFalse(config["enableWrites"])
-        self.assertEqual(sum(len(s["outputs"]) for s in config["servers"]), 42)
+        self.assertEqual(sum(len(s["outputs"]) for s in config["servers"]), 6)
         store = SnapshotStore(config)
         store.poll()
         for server in store.get()["servers"]:
@@ -110,7 +112,7 @@ class AbsoluteAlarmTests(unittest.TestCase):
             self.assertEqual(server["absoluteAlarms"], [])
 
     def test_global_collision_and_input_overlap_rejected(self):
-        config = self.reference_config()
+        config = self.fixture_config()
         tag = "CSEO.S.SCADA.Absolute.CPU.State"
         for overlap in (False, True):
             changed = copy.deepcopy(config)
@@ -118,10 +120,10 @@ class AbsoluteAlarmTests(unittest.TestCase):
             if overlap:
                 changed["servers"][0]["tags"]["runCPU"] = tag
             else:
-                changed["servers"][1]["absoluteOutputs"] = {"runCPU": tag}
+                changed["servers"][0]["outputs"]["runMemory"] = tag
             with patch("server.tomllib.load", return_value=changed), patch("server.os.path.exists", return_value=True):
                 with self.assertRaises(ValueError):
-                    load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+                    load_config(FIXTURE_CONFIG)
 
     def test_snapshot_exposes_absolute_independent_from_insufficient_trend(self):
         config = {"servers": [self.item], "staleSeconds": 120, "enableWrites": False}

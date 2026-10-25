@@ -21,6 +21,8 @@ from urllib.request import Request, urlopen
 from server import ESSENTIAL, SnapshotStore, load_config, make_handler, read_server
 from pi_client import PIReadClient
 
+FIXTURE_CONFIG = Path(__file__).resolve().parents[1] / "fixtures" / "config.toml"
+
 
 class FakePI:
     def __init__(self, value=10, timestamp=100000, good=True):
@@ -80,23 +82,23 @@ class SnapshotTests(unittest.TestCase):
             json.dumps(value, allow_nan=False)
 
     def test_unconfigured_never_connects(self):
-        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+        config = load_config(FIXTURE_CONFIG)
         store = SnapshotStore(config)
         store.poll()
         snapshot = store.get()
         self.assertEqual(snapshot["serviceStatus"], "not-configured")
-        self.assertEqual(len(snapshot["servers"]), 7)
+        self.assertEqual(len(snapshot["servers"]), 1)
         self.assertTrue(all(not s["collecting"] for s in snapshot["servers"]))
 
     def test_malformed_tags_mapping_is_rejected(self):
-        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+        config = load_config(FIXTURE_CONFIG)
         config["servers"][0]["tags"] = []
         with patch("server.tomllib.load", return_value=config):
             with self.assertRaises(ValueError):
-                load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+                load_config(FIXTURE_CONFIG)
 
     def test_history_deduplication(self):
-        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+        config = load_config(FIXTURE_CONFIG)
         store = SnapshotStore(config)
         servers = [read_server(s, FakePI(), 101000, 120) for s in config["servers"]]
         for s in servers:
@@ -108,7 +110,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(len(store.get()["servers"][0]["histories"]["local"]), 1)
 
     def test_alarm_history_persists_new_active_events_without_duplicates(self):
-        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+        config = load_config(FIXTURE_CONFIG)
         with tempfile.TemporaryDirectory() as directory:
             config["historyDbPath"] = str(Path(directory) / "history.sqlite3")
             store = SnapshotStore(config)
@@ -121,7 +123,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(history[0]["state"], "warning")
 
     def test_http_status_and_no_write(self):
-        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+        config = load_config(FIXTURE_CONFIG)
         store = SnapshotStore(config)
         store.poll()
         http = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store))
@@ -145,15 +147,15 @@ class SnapshotTests(unittest.TestCase):
     def test_missing_af_sdk_dll_is_rejected(self):
         with patch("server.os.path.exists", return_value=False):
             with self.assertRaises(FileNotFoundError):
-                load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+                load_config(FIXTURE_CONFIG)
 
     def test_af_sdk_rejects_writes_at_initialization(self):
-        config = load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+        config = load_config(FIXTURE_CONFIG)
         config["piAdapter"] = "af-sdk"
         config["enableWrites"] = True
         with patch("server.tomllib.load", return_value=config), patch("server.os.path.exists", return_value=True):
             with self.assertRaisesRegex(ValueError, "AF SDK.*read-only|enableWrites.*af-sdk|write.*disabled"):
-                load_config(Path(__file__).resolve().parents[2] / "scada_api" / "config.reference.toml")
+                load_config(FIXTURE_CONFIG)
 
     def test_af_sdk_timestamp_utc_ms_and_quality(self):
         class FakeDateTime:

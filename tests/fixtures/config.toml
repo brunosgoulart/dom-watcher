@@ -1,0 +1,61 @@
+# Isolated backend fixture. It never identifies an operational PI point.
+piServer = ""
+piAdapter = "af-sdk"
+pollSeconds = 30
+staleSeconds = 120
+enableWrites = false
+
+[trend]
+measurementSeconds = 60
+windowSeconds = 600
+referenceSeconds = 1800
+memoryWindowSeconds = 900
+criticalScore = 6.0
+recoverySamples = 3
+
+[trend.resolution]
+runCPU = 0.1
+runMemory = 0.1
+runPVT = 1024.0
+runErrorsPerMinute = 0.1
+runLocalPending = 1.0
+runRemotePending = 1.0
+
+[[servers]]
+id = "test-scada"
+name = "Servidor de teste"
+site = ""
+environment = ""
+role = "Fixture automatizada"
+
+[servers.tags]
+runCPU = "TEST.E3Run.CPU"
+runMemory = "TEST.E3Run.Memory"
+runPVT = "TEST.E3Run.PVT"
+runErrorsPerMinute = "TEST.E3Run.ErrorsPerMinute"
+runLocalPending = "TEST.E3Run.PendingEvents"
+runRemotePending = "TEST.E3Run.RemotePending"
+
+[servers.outputs]
+runCPU = "TEST.SCADA.Trend.CPU.State"
+runMemory = "TEST.SCADA.Trend.RAM.State"
+runPVT = "TEST.SCADA.Trend.PrivateMemory.State"
+runErrorsPerMinute = "TEST.SCADA.Trend.ScriptErrors.State"
+runLocalPending = "TEST.SCADA.Trend.LocalQueue.State"
+runRemotePending = "TEST.SCADA.Trend.RemoteQueue.State"
+
+[servers.absoluteLimits]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""
+
+[servers.absoluteOutputs]
+runCPU = ""
+runMemory = ""
+runPVT = ""
+runErrorsPerMinute = ""
+runLocalPending = ""
+runRemotePending = ""

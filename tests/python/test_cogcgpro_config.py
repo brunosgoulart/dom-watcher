@@ -7,7 +7,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scada_api'))
 from server import ESSENTIAL, SnapshotStore, load_config, read_server
 
-PROFILE = Path(__file__).resolve().parents[2] / 'scada_api' / 'config.cogcgpro.toml'
+PROFILE = Path(__file__).resolve().parents[2] / 'scada_api' / 'config.toml'
 MAPPING = {
     'runCPU': 'E3Run.CPU', 'runMemory': 'E3Run.Memory',
     'runPVT': 'E3Run.PVT', 'runTRD': 'E3Run.TRD',
@@ -45,13 +45,6 @@ class CogcgproConfigTests(unittest.TestCase):
             self.assertEqual(item['name'], item['id'])
             self.assertEqual(item['tags'], {key: f"CSEO.{item['id']}.{suffix}" for key, suffix in MAPPING.items()})
             self.assertTrue(set(ESSENTIAL).issubset(item['tags']))
-
-    def test_default_operational_file_is_present_and_matches_approved_profile(self):
-        operational = PROFILE.with_name('config.toml')
-        self.assertTrue(operational.is_file())
-        with patch('server.os.path.exists', return_value=True):
-            config = load_config(operational)
-        self.assertEqual(config, self.config())
 
     def test_confirmed_archive_without_assumed_limits_or_output_points(self):
         config = self.config()

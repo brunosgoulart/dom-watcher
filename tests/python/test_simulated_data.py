@@ -10,12 +10,13 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scada_api"))
 
 from server import SnapshotStore
-from simulated_data import SIMULATED_METRICS, publish_simulation, simulated_config, simulated_servers
+from simulated_data import BASIC_PROFILES, SIMULATED_METRICS, publish_simulation, simulated_config, simulated_servers
 
 
 class SimulatedDataTests(unittest.TestCase):
     def test_profiles_are_explicitly_marked_as_simulated_and_read_only(self):
         servers = simulated_servers(1700000000000)
+        self.assertEqual(len(BASIC_PROFILES), 3)
         self.assertEqual([server["id"] for server in servers], ["COGCGPRO12", "COGCGPRO34", "COGCGPRO56"])
         for server in servers:
             self.assertTrue(server["collecting"])

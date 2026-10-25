@@ -1,5 +1,5 @@
-"""Version: 1.6 | Date: 24/10/2026
-Changes: Removed static web serving and added an explicit simulated API mode for future interface development.
+"""Version: 1.7 | Date: 25/10/2026
+Changes: Clarified the API as the read-only data source for the standalone orbital interface.
 """
 from __future__ import annotations
 

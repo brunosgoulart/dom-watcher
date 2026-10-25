@@ -1,5 +1,5 @@
-"""Version: 1.1 | Date: 24/10/2026
-Changes: Preserved explicit simulated alarm and trend scenarios in the API snapshot.
+"""Version: 1.2 | Date: 25/10/2026
+Changes: Kept a compact, explicit simulated scenario set for the standalone orbital interface.
 """
 from __future__ import annotations
 
@@ -13,10 +13,16 @@ from server import METRICS, SnapshotStore
 
 SIMULATED_METRICS = tuple(METRICS)
 
-PROFILES = (
-    {"id": "COGCGPRO12", "name": "COGCGPRO12", "role": "Dados estáveis", "trend": {"runCPU": 0}, "metrics": {"runCPU": 42.0, "runMemory": 61.5, "runPVT": 821248, "runTRD": 126, "runLocalPending": 4, "runRemotePending": 2, "runErrorsPerMinute": 0.2}},
-    {"id": "COGCGPRO34", "name": "COGCGPRO34", "role": "CPU em elevação", "trend": {"runCPU": 10}, "metrics": {"runCPU": 78.6, "runMemory": 72.4, "runPVT": 906240, "runTRD": 184, "runLocalPending": 61, "runRemotePending": 12, "runErrorsPerMinute": 1.3}},
-    {"id": "COGCGPRO56", "name": "COGCGPRO56", "role": "Memória em condição crítica", "trend": {"runMemory": 20}, "metrics": {"runCPU": 91.2, "runMemory": 94.1, "runPVT": 1126400, "runTRD": 246, "runLocalPending": 318, "runRemotePending": 87, "runErrorsPerMinute": 7.8}},
+BASIC_PROFILES = (
+    {"id": "COGCGPRO12", "name": "COGCGPRO12", "role": "Dados estáveis", "trend": {"runCPU": 0},
+     "metrics": {"runCPU": 42.0, "runMemory": 61.5, "runPVT": 821248, "runTRD": 126,
+                 "runLocalPending": 4, "runRemotePending": 2, "runErrorsPerMinute": 0.2}},
+    {"id": "COGCGPRO34", "name": "COGCGPRO34", "role": "CPU em elevação", "trend": {"runCPU": 10},
+     "metrics": {"runCPU": 78.6, "runMemory": 72.4, "runPVT": 906240, "runTRD": 184,
+                 "runLocalPending": 61, "runRemotePending": 12, "runErrorsPerMinute": 1.3}},
+    {"id": "COGCGPRO56", "name": "COGCGPRO56", "role": "Memória em condição crítica", "trend": {"runMemory": 20},
+     "metrics": {"runCPU": 91.2, "runMemory": 94.1, "runPVT": 1126400, "runTRD": 246,
+                 "runLocalPending": 318, "runRemotePending": 87, "runErrorsPerMinute": 7.8}},
 )
 
 
@@ -24,7 +30,7 @@ def simulated_config(history_path: Path) -> dict:
     return {
         "piAdapter": "simulated", "staleSeconds": 120, "enableWrites": False,
         "pollSeconds": 3, "historyDbPath": str(history_path),
-        "servers": [{key: profile[key] for key in ("id", "name", "role")} for profile in PROFILES],
+        "servers": [{key: profile[key] for key in ("id", "name", "role")} for profile in BASIC_PROFILES],
     }
 
 
@@ -39,7 +45,7 @@ def simulated_servers(now_ms: float | None = None) -> list[dict]:
     now_ms = time.time() * 1000 if now_ms is None else now_ms
     now_seconds = now_ms / 1000
     servers = []
-    for profile in PROFILES:
+    for profile in BASIC_PROFILES:
         phase = now_seconds / 12 + (hash(profile["id"]) % 10)
         values = {key: 0.0 for key in METRICS}
         values.update(profile["metrics"])
