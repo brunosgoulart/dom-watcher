@@ -13,6 +13,7 @@ test('wallboard keeps the 3D operational orbit and accessible controls', () => {
   assert.match(js, /runCPU/); assert.match(js, /runMemory/); assert.match(js, /runErrorsPerMinute/);
   assert.match(js, /radiusX/); assert.match(js, /--x:\$\{x\}px/);
   assert.match(js, /data-orbit-key/); assert.match(js, /currentKeys/);
+  assert.match(js, /focusKey/); assert.match(js, /chartHistory/); assert.match(js, /renderTrend/);
   assert.match(js, /Última coleta:/); assert.match(js, /metricQuality\?\.\[item\.key\]\?\.timestamp/);
   assert.match(css, /perspective:1100px/); assert.match(css, /translate3d/);
   assert.match(css, /transition:transform 1850ms/);

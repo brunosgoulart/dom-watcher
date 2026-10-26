@@ -2,6 +2,20 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Monitor SCADA - Simulado",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scada_api/server.py",
+      "args": [
+        "--simulate",
+        "--port",
+        "8771"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
       "name": "Monitor SCADA — AF SDK",
       "type": "debugpy",
       "request": "launch",

@@ -7,6 +7,7 @@
   <meta name="description" content="Monitor operacional de runtime SCADA">
   <title>Runtime Orbit — Monitor SCADA</title>
   <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="trend.css?v=1">
   <script src="pi-config.js?v=1" defer></script>
   <script src="app.js?v=1" defer></script>
 </head>
@@ -27,9 +28,9 @@
       </div>
     </section>
 
-    <section class="operations-grid">
-      <section class="alert-panel" aria-labelledby="alert-title"><header><div><span>DESVIOS REAIS</span><h2 id="alert-title">Sinalizações ativas</h2></div><strong id="alert-count">—</strong></header><div id="alert-list" class="alert-list"><p class="empty-copy">Aguardando diagnóstico.</p></div></section>
-      <section class="fleet-panel" aria-labelledby="fleet-title"><header><div><span>FROTA MONITORADA</span><h2 id="fleet-title">Servidores</h2></div><p id="source-state">—</p></header><div id="server-list" class="server-list"></div></section>
+    <section class="trend-panel" aria-labelledby="trend-title">
+      <header><div><span>TENDÊNCIA OBSERVADA</span><h2 id="trend-title">Métrica em foco</h2></div><p id="trend-context">Aguardando série temporal</p></header>
+      <div class="trend-plot"><svg id="trend-chart" viewBox="0 0 760 240" role="img" aria-label="Gráfico de tendência das últimas quatro horas"></svg></div>
     </section>
     <footer><span id="api-state">Conectando à API...</span><span id="updated-state">—</span></footer>
   </main>

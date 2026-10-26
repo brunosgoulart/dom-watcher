@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from absolute_alarms import evaluate_absolute
-from server import METRICS, SnapshotStore
+from server import CHART_HISTORY_SECONDS, CHART_INTERVAL_SECONDS, CHART_METRICS, METRICS, SnapshotStore
 
 SIMULATED_METRICS = tuple(METRICS)
 
@@ -41,6 +41,27 @@ def _trend(metric: str, state: int, timestamp: float) -> dict:
             "reason": "Dado simulado para desenvolvimento da interface.", "writeStatus": "disabled"}
 
 
+def simulated_chart_history(profile: dict, values: dict, now_ms: float) -> dict[str, list[dict]]:
+    samples = int(CHART_HISTORY_SECONDS / CHART_INTERVAL_SECONDS)
+    history = {}
+    for metric in CHART_METRICS:
+        current = values.get(metric, 0.0)
+        points = []
+        for index in range(samples + 1):
+            ratio = index / samples
+            timestamp = now_ms - (samples - index) * CHART_INTERVAL_SECONDS * 1000
+            wave = math.sin(timestamp / 1000 / 300 + index * 0.35)
+            if profile["trend"].get(metric) == 10:
+                value = current - (1 - ratio) * max(abs(current) * 0.2, 4) + wave * max(abs(current) * 0.015, 0.1)
+            elif profile["trend"].get(metric) == 20:
+                value = current - (1 - ratio) * max(abs(current) * 0.28, 8) + wave * max(abs(current) * 0.018, 0.1)
+            else:
+                value = current + wave * max(abs(current) * 0.025, 0.15)
+            points.append({"timestamp": timestamp, "value": round(max(0, value), 3)})
+        history[metric] = points
+    return history
+
+
 def simulated_servers(now_ms: float | None = None) -> list[dict]:
     now_ms = time.time() * 1000 if now_ms is None else now_ms
     now_seconds = now_ms / 1000
@@ -64,6 +85,7 @@ def simulated_servers(now_ms: float | None = None) -> list[dict]:
         server = {"id": profile["id"], "name": profile["name"], "site": "Simulação", "environment": "Desenvolvimento local",
                   "role": profile["role"], "collecting": True, "sampleTime": now_ms, "metrics": values,
                   "metricQuality": quality, "histories": {"local": [], "remote": []},
+                  "chartHistory": simulated_chart_history(profile, values, now_ms),
                   "trends": [_trend(metric, profile["trend"].get(metric, 0), now_ms) for metric in ("runCPU", "runMemory", "runPVT", "runErrorsPerMinute", "runLocalPending", "runRemotePending")],
                   "message": "Dados simulados localmente; não há leitura ou escrita no PI."}
         server["absoluteAlarms"] = evaluate_absolute({"absoluteLimits": {"runCPU": 90.0, "runMemory": 90.0}}, server, now_ms, 120)

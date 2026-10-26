@@ -37,6 +37,9 @@ METRICS = (
 TEXT_METRICS = frozenset(("collectionTimestamp", "fileRead", "serverStatus"))
 ESSENTIAL = ("runCPU", "runMemory", "runErrorsPerMinute", "runLocalPending", "runRemotePending")
 PERCENTAGES = ("runCPU", "runMemory", "runOccupancy", "serverCPU", "localDiscardPercent", "remoteDiscardPercent")
+CHART_METRICS = ("runCPU", "runMemory", "runTRD", "runOccupancy", "runErrorsPerMinute", "runLocalPending", "runRemotePending", "ioQueueAvgDelay")
+CHART_HISTORY_SECONDS = 4 * 60 * 60
+CHART_INTERVAL_SECONDS = 5 * 60
 MAX_SERVERS = 7
 
 
@@ -142,7 +145,7 @@ def empty_server(item: dict, message: str) -> dict:
         "site": item.get("site", ""), "environment": item.get("environment", ""),
         "role": item.get("role", ""), "collecting": False, "sampleTime": None,
         "metrics": {key: None for key in METRICS}, "metricQuality": {},
-        "histories": {"local": [], "remote": []}, "message": message,
+        "histories": {"local": [], "remote": []}, "chartHistory": {}, "message": message,
     }
 
 
@@ -188,6 +191,7 @@ class SnapshotStore:
         self.publisher = TrendPublisher(config)
         self.absolute_publisher = TrendPublisher(config, "absoluteOutputs")
         self.trend_history_stamps: dict[tuple[str, str], float] = {}
+        self.chart_history: dict[tuple[str, str], list[dict]] = {}
         self.active_alarm_signatures: set[tuple[str, str, str, str]] = set()
         self.history_db = Path(config.get("historyDbPath", Path(__file__).with_name("runtime-history.sqlite3")))
         self.history_db.parent.mkdir(parents=True, exist_ok=True)
@@ -230,6 +234,25 @@ class SnapshotStore:
         with self.lock:
             return copy.deepcopy(self.snapshot)
 
+    def update_chart_history(self, servers: list) -> None:
+        cutoff = time.time() * 1000 - CHART_HISTORY_SECONDS * 1000
+        for server in servers:
+            chart_history = {}
+            for metric in CHART_METRICS:
+                history_key = (server["id"], metric)
+                points = self.chart_history.setdefault(history_key, [])
+                value = server["metrics"].get(metric)
+                quality = server.get("metricQuality", {}).get(metric, {})
+                timestamp = quality.get("timestamp")
+                if (quality.get("good") is True and not isinstance(value, bool)
+                        and isinstance(value, (int, float)) and math.isfinite(value)
+                        and not isinstance(timestamp, bool) and isinstance(timestamp, (int, float)) and math.isfinite(timestamp)
+                        and (not points or timestamp > points[-1]["timestamp"])):
+                    points.append({"timestamp": timestamp, "value": value})
+                self.chart_history[history_key] = [point for point in points if point["timestamp"] >= cutoff]
+                chart_history[metric] = copy.deepcopy(self.chart_history[history_key])
+            server["chartHistory"] = chart_history
+
     def publish(self, servers: list, status: str, client=None) -> None:
         now = time.time() * 1000
         for server in servers:
@@ -239,6 +262,7 @@ class SnapshotStore:
             server["absoluteAlarms"] = evaluate_absolute(item, server, now, self.config["staleSeconds"])
             self.absolute_publisher.publish(server["id"], server["absoluteAlarms"], client, now)
         self.record_active_alarms(servers, int(now))
+        self.update_chart_history(servers)
         with self.lock:
             previous = {s["id"]: s for s in self.snapshot["servers"]}
             for server in servers:
@@ -251,6 +275,30 @@ class SnapshotStore:
                             history = history + [dict(zip(("timestamp", "entered", "handled", "discard"), [stamp] + [server["metrics"][key] for key in fields]))]
                     server["histories"][kind] = history[-120:]
             self.snapshot.update(servers=servers, serviceStatus=status, generatedAt=datetime.now(timezone.utc).isoformat(), alarmHistory=self.alarm_history())
+
+    def hydrate_chart_history_from_pi(self, client: PIReadClient, servers: list) -> None:
+        if client.adapter != "af-sdk":
+            return
+        now = time.time() * 1000
+        for server in servers:
+            for metric in CHART_METRICS:
+                history_key = (server["id"], metric)
+                if history_key in self.chart_history:
+                    continue
+                tag = next((item["tags"].get(metric) for item in self.config["servers"] if item["id"] == server["id"]), None)
+                if not tag:
+                    self.chart_history[history_key] = []
+                    continue
+                try:
+                    samples = client.read_interpolated(tag, now - CHART_HISTORY_SECONDS * 1000, now, CHART_INTERVAL_SECONDS)
+                    self.chart_history[history_key] = [
+                        {"timestamp": sample["timestamp"], "value": sample["value"]}
+                        for sample in samples
+                        if sample.get("good") is True and isinstance(sample.get("value"), (int, float))
+                        and not isinstance(sample.get("value"), bool) and math.isfinite(sample["value"])
+                    ]
+                except Exception:
+                    self.chart_history[history_key] = []
 
     def refresh_trends_from_pi(self, client: PIReadClient, servers: list) -> None:
         if client.adapter != "af-sdk":
@@ -294,6 +342,7 @@ class SnapshotStore:
                     now = time.time() * 1000
                     servers = [read_server(s, client, now, self.config["staleSeconds"]) for s in self.config["servers"]]
                     self.refresh_trends_from_pi(client, servers)
+                    self.hydrate_chart_history_from_pi(client, servers)
                     self.publish(servers, "connected" if all(s["collecting"] for s in servers) else "degraded", client)
                 except Exception:
                     client.close()

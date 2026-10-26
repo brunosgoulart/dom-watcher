@@ -10,7 +10,7 @@ O servidor escuta somente em `127.0.0.1`.
 - Qualquer outro caminho retorna `403`.
 - Não existem endpoints HTTP de escrita ou configuração.
 
-O snapshot contém `source`, `serviceStatus`, `generatedAt`, `servers`, `alarmHistory` e a política de tendências. Cada servidor inclui métricas, qualidade/timestamp por métrica, tendências, limites absolutos e históricos de filas.
+O snapshot contém `source`, `serviceStatus`, `generatedAt`, `servers`, `alarmHistory` e a política de tendências. Cada servidor inclui métricas, qualidade/timestamp por métrica, tendências, limites absolutos, históricos de filas e `chartHistory`, com até quatro horas de amostras para as métricas exibidas na órbita. Com AF SDK, essa série é preenchida por interpolação do PI a cada inicialização.
 
 `source` é `af-sdk`, `pi-sdk-com` ou `simulated`. A interface orbital apresenta a origem `simulated` claramente e nunca a trata como leitura operacional.
 

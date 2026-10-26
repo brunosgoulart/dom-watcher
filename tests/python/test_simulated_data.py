@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scada_api"))
 
-from server import SnapshotStore
+from server import CHART_HISTORY_SECONDS, CHART_INTERVAL_SECONDS, CHART_METRICS, SnapshotStore
 from simulated_data import BASIC_PROFILES, SIMULATED_METRICS, publish_simulation, simulated_config, simulated_servers
 
 
@@ -30,6 +30,16 @@ class SimulatedDataTests(unittest.TestCase):
             store = SnapshotStore(config)
             self.assertEqual(store.get()["source"], "simulated")
             self.assertFalse(config["enableWrites"])
+
+    def test_simulated_servers_include_four_hours_for_every_orbit_metric(self):
+        now_ms = 1700000000000
+        expected_samples = int(CHART_HISTORY_SECONDS / CHART_INTERVAL_SECONDS) + 1
+        for server in simulated_servers(now_ms):
+            self.assertEqual(set(server["chartHistory"]), set(CHART_METRICS))
+            for points in server["chartHistory"].values():
+                self.assertEqual(len(points), expected_samples)
+                self.assertEqual(points[0]["timestamp"], now_ms - CHART_HISTORY_SECONDS * 1000)
+                self.assertEqual(points[-1]["timestamp"], now_ms)
 
     def test_publish_simulation_updates_snapshot(self):
         with TemporaryDirectory() as directory:
