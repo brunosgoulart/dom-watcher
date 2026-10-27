@@ -19,17 +19,49 @@
       "name": "Monitor SCADA — AF SDK",
       "type": "debugpy",
       "request": "launch",
-      "python": "${workspaceFolder}/.venv-afsdk/Scripts/python.exe",
       "program": "${workspaceFolder}/scada_api/server.py",
       "args": [
         "--config",
         "${workspaceFolder}/scada_api/config.toml",
         "--port",
-        "8768"
+        "8771"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true
+    },
+    {
+      "name": "Interface SCADA",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/interface_preview.py",
+      "args": [
+        "--port",
+        "8770",
+        "--api-port",
+        "8771"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Dashboard SCADA - PI real",
+      "configurations": [
+        "Monitor SCADA - AF SDK",
+        "Interface SCADA"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "Dashboard SCADA - Simulado",
+      "configurations": [
+        "Monitor SCADA - Simulado",
+        "Interface SCADA"
+      ],
+      "stopAll": true
     }
   ]
 }

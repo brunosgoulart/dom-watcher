@@ -67,8 +67,16 @@ function renderTrend(item) {
   const height = 240; const width = Math.max(760, Math.round(chart.clientWidth / Math.max(chart.clientHeight, 1) * height)); const left = 20; const right = 2; const top = 10; const bottom = 28;
   chart.setAttribute('viewBox', `0 0 ${width} ${height}`);
   const minimum = Math.min(...points.map(point => point.value)); const maximum = Math.max(...points.map(point => point.value));
-  const padding = Math.max((maximum - minimum) * .14, Math.abs(maximum) * .04, 0.1);
-  const lower = Math.max(0, minimum - padding); const upper = maximum + padding;
+  const range = maximum - minimum;
+  const minimumRange = Math.max(Math.abs(maximum) * .1, item.digits > 0 ? 0.2 : 1);
+  const padding = Math.max(range * .14, minimumRange * .1);
+  const center = (minimum + maximum) / 2;
+  const lower = 0;
+  const upper = range < minimumRange ? Math.max(minimumRange, center + minimumRange / 2) : maximum + padding;
+  const axisStep = (upper - lower) / 3;
+  const axisDigits = axisStep < 1
+    ? Math.max(item.digits, Math.min(3, Math.ceil(-Math.log10(axisStep))))
+    : item.digits;
   const start = points[0].timestamp; const end = points.at(-1).timestamp; const timeSpan = Math.max(end - start, 1); const valueSpan = Math.max(upper - lower, 1);
   const position = point => ({ x: left + (point.timestamp - start) / timeSpan * (width - left - right), y: top + (upper - point.value) / valueSpan * (height - top - bottom) });
   const positions = points.map(position); const line = positions.map((point, index) => `${index ? 'L' : 'M'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
@@ -79,7 +87,7 @@ function renderTrend(item) {
   const xTicks = Array.from({ length: 5 }, (_, index) => start + index * (end - start) / 4);
   const yMarkup = yTicks.map(value => {
     const y = top + (upper - value) / valueSpan * (height - top - bottom);
-    return `<line x1="${left}" x2="${width - right}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"/><text class="trend-axis trend-y-axis" x="${left + 4}" y="${(y + 3.5).toFixed(1)}">${format(value, item.digits)}</text>`;
+    return `<line x1="${left}" x2="${width - right}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"/><text class="trend-axis trend-y-axis" x="${left + 4}" y="${(y + 3.5).toFixed(1)}">${format(value, axisDigits)}</text>`;
   }).join('');
   const xMarkup = xTicks.map((value, index) => {
     const x = left + index / 4 * (width - left - right); const anchor = index === 0 ? 'start' : index === 4 ? 'end' : 'middle';
@@ -144,7 +152,6 @@ function renderOrbit() {
     });
   } else host.innerHTML = items.map(bubbleMarkup).join('') || '<p class="empty-copy">Nenhuma métrica disponível.</p>';
   renderFocus(items);
-  $('orbit-context').textContent = `${total} pontos em órbita · prioridade visual para desvios`;
 }
 function renderAlerts() {
   const signals = activeSignals();
@@ -169,12 +176,6 @@ function renderServers() {
   }).join('') || '<p class="empty-copy">Nenhum servidor recebido.</p>';
 }
 function renderHeader() {
-  const servers = snapshot?.servers || [];
-  const states = servers.map(serverState);
-  const state = states.includes('critical') ? 'critical' : states.includes('warning') ? 'warning' : states.includes('unknown') ? 'unknown' : 'healthy';
-  const label = state === 'critical' ? 'Atenção imediata necessária' : state === 'warning' ? 'Desvio sob acompanhamento' : state === 'unknown' ? 'Estado não confirmado' : 'Operação dentro dos limites';
-  $('headline').className = `headline ${state}`;
-  $('headline').innerHTML = `<span class="headline-dot"></span><strong>${label}</strong><small>${servers.length} servidor${servers.length === 1 ? '' : 'es'} no monitoramento</small>`;
   $('api-state').textContent = snapshot?.source === 'simulated' ? 'SIMULAÇÃO LOCAL' : 'LEITURA OPERACIONAL';
   $('updated-state').textContent = snapshot?.generatedAt ? `Atualizado ${new Date(snapshot.generatedAt).toLocaleTimeString('pt-BR')}` : 'Sem atualização';
 }
@@ -187,8 +188,6 @@ async function refresh() {
     render();
   } catch (error) {
     $('api-state').textContent = `API indisponível · ${error.message}`;
-    $('headline').className = 'headline unknown';
-    $('headline').innerHTML = '<span class="headline-dot"></span><strong>Estado não confirmado</strong><small>Não foi possível obter telemetria</small>';
   }
 }
 function advanceFocus() { if (!motionPaused && orbitItems().length) { focusIndex++; focusKey = null; renderOrbit(); } }
